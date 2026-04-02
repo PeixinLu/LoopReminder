@@ -145,7 +145,21 @@ struct BasicSettingsView: View {
                         .labelsHidden()
                         .toggleStyle(.switch)
                 }
-                
+
+                Divider().opacity(0.5)
+
+                // 启动时自动开始计时
+                SettingToggleRow(
+                    icon: "play.circle.fill",
+                    iconColor: .green,
+                    title: "启动时自动开始计时",
+                    description: "应用启动后自动运行所有计时器"
+                ) {
+                    Toggle("", isOn: $settings.autoStartTimersOnLaunch)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+
                 Divider().opacity(0.5)
                 
                 // 锁屏唤醒重计时

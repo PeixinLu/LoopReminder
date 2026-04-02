@@ -122,6 +122,7 @@ final class AppSettings: ObservableObject {
         static let screenSelection = "screenSelection"
         static let silentLaunch = "silentLaunch"
         static let resetOnWake = "resetOnWake"
+        static let autoStartTimersOnLaunch = "autoStartTimersOnLaunch"
         static let isRestEnabled = "isRestEnabled"
         static let restSeconds = "restSeconds"
         // 多计时器
@@ -175,6 +176,7 @@ final class AppSettings: ObservableObject {
     // 静默启动设置
     @Published var silentLaunch: Bool
     @Published var resetOnWakeEnabled: Bool
+    @Published var autoStartTimersOnLaunch: Bool
 
     // 多计时器支持
     @Published var timers: [TimerItem]
@@ -299,6 +301,7 @@ final class AppSettings: ObservableObject {
         // Load - 静默启动设置
         self.silentLaunch = defaults.object(forKey: Keys.silentLaunch) as? Bool ?? false
         self.resetOnWakeEnabled = defaults.object(forKey: Keys.resetOnWake) as? Bool ?? config.system.resetOnWake
+        self.autoStartTimersOnLaunch = defaults.object(forKey: Keys.autoStartTimersOnLaunch) as? Bool ?? false
 
         // Load - 多计时器
         if let timersData = defaults.data(forKey: Keys.timers),
@@ -379,6 +382,7 @@ final class AppSettings: ObservableObject {
         // Persist changes - 静默启动设置
         $silentLaunch.dropFirst().sink { [weak self] in self?.defaults.set($0, forKey: Keys.silentLaunch) }.store(in: &cancellables)
         $resetOnWakeEnabled.dropFirst().sink { [weak self] in self?.defaults.set($0, forKey: Keys.resetOnWake) }.store(in: &cancellables)
+        $autoStartTimersOnLaunch.dropFirst().sink { [weak self] in self?.defaults.set($0, forKey: Keys.autoStartTimersOnLaunch) }.store(in: &cancellables)
 
         // Persist changes - 多计时器
         $timers.dropFirst().sink { [weak self] timers in
