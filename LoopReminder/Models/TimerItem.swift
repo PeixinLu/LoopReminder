@@ -47,6 +47,9 @@ struct TimerItem: Identifiable, Codable {
     // 定点提醒时间列表
     var scheduledTimes: [ScheduledTime] = [ScheduledTime(hour: 9, minute: 0)]
 
+    // 提示音（nil 表示静音）
+    var soundName: String? = "Glass"
+
     // 计算属性：显示名称（使用标题，如果为空则用"计时器+数字"）
     var displayName: String {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -130,7 +133,8 @@ struct TimerItem: Identifiable, Codable {
         customColor: TimerColor? = nil,
         lastFireEpoch: Double = 0,
         reminderType: ReminderType = .interval,
-        scheduledTimes: [ScheduledTime] = [ScheduledTime(hour: 9, minute: 0)]
+        scheduledTimes: [ScheduledTime] = [ScheduledTime(hour: 9, minute: 0)],
+        soundName: String? = "Glass"
     ) {
         self.id = id
         self.emoji = emoji
@@ -143,6 +147,7 @@ struct TimerItem: Identifiable, Codable {
         self.lastFireEpoch = lastFireEpoch
         self.reminderType = reminderType
         self.scheduledTimes = scheduledTimes
+        self.soundName = soundName
         self.isRunning = false
     }
     
@@ -214,6 +219,6 @@ struct TimerItem: Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, emoji, title, body, intervalSeconds
         case isRestEnabled, restSeconds, customColor, lastFireEpoch
-        case reminderType, scheduledTimes
+        case reminderType, scheduledTimes, soundName
     }
 }

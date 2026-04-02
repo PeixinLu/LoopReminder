@@ -415,13 +415,22 @@ final class ReminderController: ObservableObject {
         let payload = content ?? buildContent(timer: timer)
         let style = overlayStyle ?? buildOverlayStyle(timer: timer, settings: settings)
         logger.log("发送通知: \(payload.title.isEmpty ? "(无标题)" : payload.title) | 模式 \(settings.notificationMode.rawValue)\(isTest ? " [测试]" : "")")
-        
+
+        // 播放提示音
+        playSound(for: timer)
+
         switch settings.notificationMode {
         case .system:
             await sendSystemNotification(content: payload)
         case .overlay:
             showOverlayNotification(timer: timer, settings: settings, content: payload, style: style, triggerRestOnDismiss: triggerRestOnDismiss)
         }
+    }
+
+    /// 播放提示音
+    private func playSound(for timer: TimerItem) {
+        guard let soundName = timer.soundName else { return }
+        NSSound(named: NSSound.Name(soundName))?.play()
     }
     
     private func sendStartLikeNotification(settings: AppSettings, title: String, body: String) async {

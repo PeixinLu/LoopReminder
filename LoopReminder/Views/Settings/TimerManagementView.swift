@@ -273,13 +273,31 @@ struct TimerItemCard: View {
     enum TimeUnit: String, CaseIterable {
         case seconds = "秒"
         case minutes = "分钟"
-        
+
         var multiplier: Double {
             switch self {
             case .seconds: return 1
             case .minutes: return 60
             }
         }
+    }
+
+    // macOS 系统内置提示音
+    enum SystemSound: String, CaseIterable {
+        case basso = "Basso"
+        case blow = "Blow"
+        case bottle = "Bottle"
+        case frog = "Frog"
+        case funk = "Funk"
+        case glass = "Glass"
+        case hero = "Hero"
+        case morse = "Morse"
+        case ping = "Ping"
+        case pop = "Pop"
+        case purr = "Purr"
+        case sosumi = "Sosumi"
+        case submarine = "Submarine"
+        case tink = "Tink"
     }
     
     var body: some View {
@@ -691,6 +709,9 @@ struct TimerItemCard: View {
                 
                 // 颜色配置
                 colorConfigSection
+
+                // 提示音配置
+                soundConfigSection
                 
                 // 删除按钮
                 if settings.timers.count > 1 {
@@ -718,8 +739,99 @@ struct TimerItemCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
     
+    // MARK: - Sound Config Section
+
+    private var soundConfigSection: some View {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
+            HStack {
+                Text("提示音")
+                    .font(DesignTokens.Typography.sectionTitle)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Toggle("", isOn: Binding(
+                    get: { timer.soundName != nil },
+                    set: { enabled in
+                        if enabled {
+                            timer.soundName = "Glass"
+                        } else {
+                            timer.soundName = nil
+                        }
+                    }
+                ))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .disabled(settings.isRunning)
+            }
+
+            if timer.soundName != nil {
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
+                    HStack(spacing: DesignTokens.Spacing.sm) {
+                        // 使用 Menu 替代 Picker，支持 hover 预览
+                        Menu {
+                            ForEach(SystemSound.allCases, id: \.self) { sound in
+                                Button {
+                                    timer.soundName = sound.rawValue
+                                } label: {
+                                    HStack {
+                                        Text(sound.rawValue)
+                                        if timer.soundName == sound.rawValue {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
+                                .onHover { isHovering in
+                                    if isHovering && !settings.isRunning {
+                                        NSSound(named: NSSound.Name(sound.rawValue))?.play()
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack {
+                                Text(timer.soundName ?? "Glass")
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Image(systemName: "chevron.down")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 6)
+                            .background(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(Color(nsColor: .controlBackgroundColor))
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 4)
+                                    .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                            )
+                        }
+                        .disabled(settings.isRunning)
+
+                        // 预览按钮
+                        Button {
+                            previewSound()
+                        } label: {
+                            Image(systemName: "speaker.wave.2.fill")
+                                .foregroundStyle(.blue)
+                        }
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("播放预览")
+                    }
+
+                    InfoHint("悬停在选项上可预览声音", color: .blue)
+                }
+            }
+        }
+    }
+
+    private func previewSound() {
+        guard let soundName = timer.soundName else { return }
+        NSSound(named: NSSound.Name(soundName))?.play()
+    }
+
     // MARK: - Color Config Section
-    
+
     private var colorConfigSection: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
             HStack {
