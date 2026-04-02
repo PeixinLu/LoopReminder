@@ -10,7 +10,7 @@ struct DefaultSettingsConfig: Codable {
         let body: String
         let emoji: String
     }
-    
+
     struct Interval: Codable {
         let `default`: Double
         let min: Double
@@ -21,14 +21,14 @@ struct DefaultSettingsConfig: Codable {
         let enabled: Bool
         let `default`: Double
     }
-    
+
     struct Overlay: Codable {
         struct CustomColor: Codable {
             let r: Double
             let g: Double
             let b: Double
         }
-        
+
         let position: String
         let color: String
         let opacity: Double
@@ -51,20 +51,22 @@ struct DefaultSettingsConfig: Codable {
         let useBlur: Bool
         let blurIntensity: Double
         let customColor: CustomColor
+        let material: String
+        let liquidGlassStyle: String
     }
-    
+
     struct Animation: Codable {
         let style: String
     }
-    
+
     struct Screen: Codable {
         let selection: String
     }
-    
+
     struct System: Codable {
         let resetOnWake: Bool
     }
-    
+
     let notification: Notification
     let interval: Interval
     let rest: Rest
@@ -86,7 +88,7 @@ final class AppSettings: ObservableObject {
         }
         return config
     }()
-    
+
     private enum Keys {
         static let isRunning = "isRunning"
         static let intervalSeconds = "intervalSeconds"
@@ -99,12 +101,11 @@ final class AppSettings: ObservableObject {
         static let overlayColor = "overlayColor"
         static let overlayOpacity = "overlayOpacity"
         static let overlayFadeDelay = "overlayFadeDelay"
-        static let overlayStayDuration = "overlayStayDuration" // 停留时间（原 overlayFadeStartDelay）
-        static let overlayEnableFadeOut = "overlayEnableFadeOut" // 是否启用渐透明
-        static let overlayFadeOutDelay = "overlayFadeOutDelay" // 变淡延迟
-        static let overlayFadeOutDuration = "overlayFadeOutDuration" // 变淡持续时间（原 overlayFadeDuration）
+        static let overlayStayDuration = "overlayStayDuration"
+        static let overlayEnableFadeOut = "overlayEnableFadeOut"
+        static let overlayFadeOutDelay = "overlayFadeOutDelay"
+        static let overlayFadeOutDuration = "overlayFadeOutDuration"
         static let animationStyle = "animationStyle"
-        // 新增样式配置
         static let overlayTitleFontSize = "overlayTitleFontSize"
         static let overlayIconSize = "overlayIconSize"
         static let overlayCornerRadius = "overlayCornerRadius"
@@ -121,14 +122,14 @@ final class AppSettings: ObservableObject {
         static let screenSelection = "screenSelection"
         static let silentLaunch = "silentLaunch"
         static let resetOnWake = "resetOnWake"
-
-        // 新增：休息一下
         static let isRestEnabled = "isRestEnabled"
         static let restSeconds = "restSeconds"
-        
-        // 新增：多计时器
+        // 多计时器
         static let timers = "timers"
         static let focusedTimerID = "focusedTimerID"
+        // 材质选项
+        static let overlayMaterial = "overlayMaterial"
+        static let liquidGlassStyle = "liquidGlassStyle"
     }
 
     private let defaults = UserDefaults.standard
@@ -138,11 +139,9 @@ final class AppSettings: ObservableObject {
     @Published var isRunning: Bool
     @Published var intervalSeconds: Double
     @Published var notificationMode: NotificationMode
-
     @Published var notifTitle: String
     @Published var notifBody: String
     @Published var notifEmoji: String
-
     @Published var lastFireEpoch: Double
 
     // Observable values - 休息一下
@@ -153,12 +152,12 @@ final class AppSettings: ObservableObject {
     @Published var overlayPosition: OverlayPosition
     @Published var overlayColor: OverlayColor
     @Published var overlayOpacity: Double
-    @Published var overlayStayDuration: Double // 停留时间
-    @Published var overlayEnableFadeOut: Bool // 是否启用渐透明
-    @Published var overlayFadeOutDelay: Double // 变淡延迟
-    @Published var overlayFadeOutDuration: Double // 变淡持续时间
+    @Published var overlayStayDuration: Double
+    @Published var overlayEnableFadeOut: Bool
+    @Published var overlayFadeOutDelay: Double
+    @Published var overlayFadeOutDuration: Double
     @Published var animationStyle: AnimationStyle
-    
+
     // 新增样式配置
     @Published var overlayTitleFontSize: Double
     @Published var overlayIconSize: Double
@@ -172,20 +171,36 @@ final class AppSettings: ObservableObject {
     @Published var overlayCustomColor: Color
     @Published var overlayBodyFontSize: Double
     @Published var screenSelection: ScreenSelection
-    
-    // 静默启动设置（开机启动由 LaunchAtLogin 包管理）
+
+    // 静默启动设置
     @Published var silentLaunch: Bool
     @Published var resetOnWakeEnabled: Bool
-    
+
     // 多计时器支持
     @Published var timers: [TimerItem]
     @Published var focusedTimerID: UUID?
-    
+
+    // 材质选项
+    @Published var overlayMaterial: OverlayMaterial
+    @Published var liquidGlassStyle: LiquidGlassStyle
+
+    // MARK: - Enums
+
     enum NotificationMode: String, CaseIterable {
         case overlay = "屏幕遮罩"
         case system = "系统通知"
     }
-    
+
+    enum OverlayMaterial: String, CaseIterable {
+        case basic = "基本"
+        case liquidGlass = "液态玻璃"
+    }
+
+    enum LiquidGlassStyle: String, CaseIterable {
+        case clear = "清晰"
+        case regular = "常规"
+    }
+
     enum OverlayPosition: String, CaseIterable {
         case topLeft = "左上角"
         case topRight = "右上角"
@@ -195,7 +210,7 @@ final class AppSettings: ObservableObject {
         case center = "屏幕正中"
         case bottomCenter = "底部居中"
     }
-    
+
     enum OverlayColor: String, CaseIterable {
         case black = "黑色"
         case blue = "蓝色"
@@ -206,17 +221,17 @@ final class AppSettings: ObservableObject {
         case teal = "青色"
         case custom = "自定义"
     }
-    
+
     enum AnimationStyle: String, CaseIterable {
         case fade = "淡化"
         case slide = "平移"
         case scale = "缩放"
     }
-    
+
     enum ScreenSelection: String, CaseIterable {
         case active = "活跃屏幕"
         case mouse = "鼠标所在屏幕"
-        
+
         var description: String {
             switch self {
             case .active:
@@ -229,7 +244,7 @@ final class AppSettings: ObservableObject {
 
     init() {
         let config = Self.defaultConfig
-        
+
         // Load - 基本设置
         self.isRunning = defaults.object(forKey: Keys.isRunning) as? Bool ?? false
         self.intervalSeconds = defaults.object(forKey: Keys.intervalSeconds) as? Double ?? config.interval.default
@@ -237,7 +252,7 @@ final class AppSettings: ObservableObject {
         self.notifBody = defaults.string(forKey: Keys.notifBody) ?? config.notification.body
         self.notifEmoji = defaults.string(forKey: Keys.notifEmoji) ?? config.notification.emoji
         self.lastFireEpoch = defaults.object(forKey: Keys.lastFire) as? Double ?? 0
-        
+
         let modeRawValue = defaults.string(forKey: Keys.notificationMode) ?? config.notificationMode
         self.notificationMode = NotificationMode(rawValue: modeRawValue) ?? .overlay
 
@@ -248,19 +263,19 @@ final class AppSettings: ObservableObject {
         // Load - 通知样式
         let positionRawValue = defaults.string(forKey: Keys.overlayPosition) ?? config.overlay.position
         self.overlayPosition = OverlayPosition(rawValue: positionRawValue) ?? .topRight
-        
+
         let colorRawValue = defaults.string(forKey: Keys.overlayColor) ?? config.overlay.color
         self.overlayColor = OverlayColor(rawValue: colorRawValue) ?? .black
-        
+
         self.overlayOpacity = defaults.object(forKey: Keys.overlayOpacity) as? Double ?? config.overlay.opacity
         self.overlayStayDuration = defaults.object(forKey: Keys.overlayStayDuration) as? Double ?? config.overlay.stayDuration
         self.overlayEnableFadeOut = defaults.object(forKey: Keys.overlayEnableFadeOut) as? Bool ?? config.overlay.enableFadeOut
         self.overlayFadeOutDelay = defaults.object(forKey: Keys.overlayFadeOutDelay) as? Double ?? config.overlay.fadeOutDelay
         self.overlayFadeOutDuration = defaults.object(forKey: Keys.overlayFadeOutDuration) as? Double ?? config.overlay.fadeOutDuration
-        
+
         let animationRawValue = defaults.string(forKey: Keys.animationStyle) ?? config.animation.style
         self.animationStyle = AnimationStyle(rawValue: animationRawValue) ?? .fade
-        
+
         // Load - 新增样式配置
         self.overlayTitleFontSize = defaults.object(forKey: Keys.overlayTitleFontSize) as? Double ?? config.overlay.titleFontSize
         self.overlayIconSize = defaults.object(forKey: Keys.overlayIconSize) as? Double ?? config.overlay.iconSize
@@ -272,26 +287,25 @@ final class AppSettings: ObservableObject {
         self.overlayWidth = defaults.object(forKey: Keys.overlayWidth) as? Double ?? config.overlay.width
         self.overlayHeight = defaults.object(forKey: Keys.overlayHeight) as? Double ?? config.overlay.height
         self.overlayBodyFontSize = defaults.object(forKey: Keys.overlayBodyFontSize) as? Double ?? config.overlay.bodyFontSize
-        
+
         let r = defaults.object(forKey: Keys.overlayCustomColorR) as? Double ?? config.overlay.customColor.r
         let g = defaults.object(forKey: Keys.overlayCustomColorG) as? Double ?? config.overlay.customColor.g
         let b = defaults.object(forKey: Keys.overlayCustomColorB) as? Double ?? config.overlay.customColor.b
         self.overlayCustomColor = Color(red: r, green: g, blue: b)
-        
+
         let screenSelectionRawValue = defaults.string(forKey: Keys.screenSelection) ?? config.screen.selection
         self.screenSelection = ScreenSelection(rawValue: screenSelectionRawValue) ?? .active
-        
-        // Load - 静默启动设置（开机启动由 LaunchAtLogin 包管理）
+
+        // Load - 静默启动设置
         self.silentLaunch = defaults.object(forKey: Keys.silentLaunch) as? Bool ?? false
         self.resetOnWakeEnabled = defaults.object(forKey: Keys.resetOnWake) as? Bool ?? config.system.resetOnWake
-        
+
         // Load - 多计时器
         if let timersData = defaults.data(forKey: Keys.timers),
            let decodedTimers = try? JSONDecoder().decode([TimerItem].self, from: timersData),
            !decodedTimers.isEmpty {
             self.timers = decodedTimers
         } else {
-            // 默认创建一个计时器，使用旧的配置迁移过来
             let defaultTimer = TimerItem(
                 emoji: defaults.string(forKey: Keys.notifEmoji) ?? config.notification.emoji,
                 title: defaults.string(forKey: Keys.notifTitle) ?? config.notification.title,
@@ -304,7 +318,15 @@ final class AppSettings: ObservableObject {
             )
             self.timers = [defaultTimer]
         }
-        
+
+        // Load - 材质选项
+        let materialRawValue = defaults.string(forKey: Keys.overlayMaterial) ?? config.overlay.material
+        self.overlayMaterial = OverlayMaterial(rawValue: materialRawValue) ?? .basic
+
+        let liquidGlassStyleRawValue = defaults.string(forKey: Keys.liquidGlassStyle) ?? config.overlay.liquidGlassStyle
+        self.liquidGlassStyle = LiquidGlassStyle(rawValue: liquidGlassStyleRawValue) ?? .regular
+
+        // Load - focusedTimerID
         if let focusedIDString = defaults.string(forKey: Keys.focusedTimerID) {
             self.focusedTimerID = UUID(uuidString: focusedIDString)
         } else {
@@ -333,7 +355,7 @@ final class AppSettings: ObservableObject {
         $overlayFadeOutDelay.dropFirst().sink { [weak self] in self?.defaults.set($0, forKey: Keys.overlayFadeOutDelay) }.store(in: &cancellables)
         $overlayFadeOutDuration.dropFirst().sink { [weak self] in self?.defaults.set($0, forKey: Keys.overlayFadeOutDuration) }.store(in: &cancellables)
         $animationStyle.dropFirst().sink { [weak self] in self?.defaults.set($0.rawValue, forKey: Keys.animationStyle) }.store(in: &cancellables)
-        
+
         // Persist changes - 新增样式配置
         $overlayTitleFontSize.dropFirst().sink { [weak self] in self?.defaults.set($0, forKey: Keys.overlayTitleFontSize) }.store(in: &cancellables)
         $overlayIconSize.dropFirst().sink { [weak self] in self?.defaults.set($0, forKey: Keys.overlayIconSize) }.store(in: &cancellables)
@@ -353,56 +375,52 @@ final class AppSettings: ObservableObject {
             self.defaults.set(components.blue, forKey: Keys.overlayCustomColorB)
         }.store(in: &cancellables)
         $screenSelection.dropFirst().sink { [weak self] in self?.defaults.set($0.rawValue, forKey: Keys.screenSelection) }.store(in: &cancellables)
-        
+
         // Persist changes - 静默启动设置
         $silentLaunch.dropFirst().sink { [weak self] in self?.defaults.set($0, forKey: Keys.silentLaunch) }.store(in: &cancellables)
         $resetOnWakeEnabled.dropFirst().sink { [weak self] in self?.defaults.set($0, forKey: Keys.resetOnWake) }.store(in: &cancellables)
-        
+
         // Persist changes - 多计时器
         $timers.dropFirst().sink { [weak self] timers in
             if let encoded = try? JSONEncoder().encode(timers) {
                 self?.defaults.set(encoded, forKey: Keys.timers)
             }
         }.store(in: &cancellables)
-        
+
         $focusedTimerID.dropFirst().sink { [weak self] id in
             self?.defaults.set(id?.uuidString, forKey: Keys.focusedTimerID)
         }.store(in: &cancellables)
 
-        // Guardrail: 5秒到2小时
+        // Persist changes - 定点提醒
+        // Persist changes - 材质选项
+        $overlayMaterial.dropFirst().sink { [weak self] in self?.defaults.set($0.rawValue, forKey: Keys.overlayMaterial) }.store(in: &cancellables)
+        $liquidGlassStyle.dropFirst().sink { [weak self] in self?.defaults.set($0.rawValue, forKey: Keys.liquidGlassStyle) }.store(in: &cancellables)
+
+        // Guardrails
         if intervalSeconds < config.interval.min { intervalSeconds = config.interval.min }
         if intervalSeconds > config.interval.max { intervalSeconds = config.interval.max }
-
-        // Guardrail: 休息时间
         if restSeconds < config.interval.min { restSeconds = config.interval.min }
         if restSeconds > config.interval.max { restSeconds = config.interval.max }
-
-        // Guardrail: 透明度 0.3 - 1.0
         if overlayOpacity < 0.3 { overlayOpacity = 0.3 }
         if overlayOpacity > 1.0 { overlayOpacity = 1.0 }
-        
-        // Guardrail: 停留时间、变淡延迟、变淡持续时间
+
         validateTimingSettings()
     }
-    
-    // 验证并调整时间相关设置
+
     func validateTimingSettings() {
-        // 最大停留时间 = 下次通知到来时间 - 过渡动画时间
-        let transitionTime: Double = 1.0 // 进入/退出动画时间
+        let transitionTime: Double = 1.0
         let maxStayDuration = intervalSeconds - transitionTime
         if overlayStayDuration > maxStayDuration {
             overlayStayDuration = max(1.0, maxStayDuration)
         }
         if overlayStayDuration < 1.0 { overlayStayDuration = 1.0 }
-        
-        // 最大变淡延迟 = 停留时间 - 变淡持续时间
+
         let maxFadeOutDelay = overlayStayDuration - overlayFadeOutDuration
         if overlayFadeOutDelay > maxFadeOutDelay {
             overlayFadeOutDelay = max(0, maxFadeOutDelay)
         }
         if overlayFadeOutDelay < 0 { overlayFadeOutDelay = 0 }
-        
-        // 最大变淡持续时间 = 停留时间 - 变淡延迟
+
         let maxFadeOutDuration = overlayStayDuration - overlayFadeOutDelay
         if overlayFadeOutDuration > maxFadeOutDuration {
             overlayFadeOutDuration = max(0.5, maxFadeOutDuration)
@@ -418,7 +436,7 @@ final class AppSettings: ObservableObject {
     func markFiredNow() {
         lastFireEpoch = Date().timeIntervalSince1970
     }
-    
+
     func formattedInterval() -> String {
         let seconds = Int(intervalSeconds)
         if seconds < 60 {
@@ -464,16 +482,16 @@ final class AppSettings: ObservableObject {
             }
         }
     }
-    
+
     func getEffectiveFadeOutDuration() -> Double {
         guard overlayEnableFadeOut else { return 0 }
         return overlayFadeOutDuration
     }
-    
+
     func getTotalDisplayDuration() -> Double {
         return overlayStayDuration
     }
-    
+
     func getOverlayColor() -> Color {
         switch overlayColor {
         case .black: return .black
@@ -486,13 +504,12 @@ final class AppSettings: ObservableObject {
         case .custom: return overlayCustomColor
         }
     }
-    
-    // 验证内容是否有效（至少有一项不为空）
+
     func isContentValid() -> Bool {
         let trimmedTitle = notifTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedBody = notifBody.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedEmoji = notifEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
-        
+
         return !trimmedTitle.isEmpty || !trimmedBody.isEmpty || !trimmedEmoji.isEmpty
     }
 }

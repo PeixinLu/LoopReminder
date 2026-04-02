@@ -4,12 +4,8 @@ import LaunchAtLogin
 struct BasicSettingsView: View {
     @EnvironmentObject private var settings: AppSettings
 
-    @Binding var inputValue: String
-    @Binding var selectedUnit: TimeUnit
-
     @State private var restInputValue: String = ""
     @State private var restSelectedUnit: TimeUnit = .minutes
-    @FocusState private var isEmojiFieldFocused: Bool
 
     enum TimeUnit: String, CaseIterable {
         case seconds = "秒"
@@ -38,10 +34,13 @@ struct BasicSettingsView: View {
             // 内容区域 - 可滚动
             ScrollView {
                 VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-                    // 1. 启动设置
+                    // 1. 休息一下
+                    restSection
+
+                    // 2. 启动设置
                     launchSettingsSection
-                    
-                    // 2. 通知方式
+
+                    // 3. 通知方式
                     notificationModeSection
                 }
                 .padding(.bottom, DesignTokens.Spacing.xl)
@@ -49,119 +48,6 @@ struct BasicSettingsView: View {
             }
         }
         .onAppear(perform: initializeRestInputValue)
-    }
-
-    // MARK: - Notification Content Section
-
-    private var notificationContentSection: some View {
-        SettingsSection(title: "通知内容") {
-            VStack(spacing: DesignTokens.Spacing.md) {
-                SettingRow(icon: "textformat", iconColor: .green, title: "标题") {
-                    TextField("输入标题", text: $settings.notifTitle)
-                        .textFieldStyle(.roundedBorder)
-                        .disabled(settings.isRunning)
-                }
-                
-                SettingRow(icon: "text.alignleft", iconColor: .green, title: "描述") {
-                    TextField("输入描述内容", text: $settings.notifBody, axis: .vertical)
-                        .textFieldStyle(.roundedBorder)
-                        .lineLimit(2...5)
-                        .disabled(settings.isRunning)
-                }
-                
-                SettingRow(icon: "face.smiling", iconColor: .blue, title: "图标") {
-                    ZStack(alignment: .trailing) {
-                        TextField("Emoji（显示在标题前）", text: $settings.notifEmoji)
-                            .textFieldStyle(.roundedBorder)
-                            .disabled(settings.isRunning)
-                            .padding(.trailing, 32)
-                            .focused($isEmojiFieldFocused)
-                        
-                        Button {
-                            // 先激活输入框
-                            isEmojiFieldFocused = true
-                            // 使用较长延迟确保焦点已完全切换
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                                // 再次确保焦点在输入框上
-                                if !isEmojiFieldFocused {
-                                    isEmojiFieldFocused = true
-                                }
-                                // 打开表情面板
-                                NSApp.orderFrontCharacterPalette(nil)
-                            }
-                        } label: {
-                            Image(systemName: "face.smiling.fill")
-                                .foregroundStyle(.blue)
-                                .padding(6)
-                        }
-                        .buttonStyle(.borderless)
-                        .help("打开系统表情与符号面板")
-                        .disabled(settings.isRunning)
-                        .padding(.trailing, 4)
-                    }
-                }
-                
-                InfoHint("Emoji 使用 macOS 的 Apple Color Emoji 字体渲染", color: .green)
-                
-                if settings.isRunning {
-                    LockHint("请先暂停才能修改内容")
-                }
-            }
-        }
-        .runningStateStyle(isRunning: settings.isRunning)
-    }
-
-    // MARK: - Notification Interval Section
-
-    private var notificationIntervalSection: some View {
-        SettingsSection(title: "通知频率") {
-            VStack(spacing: DesignTokens.Spacing.md) {
-                SettingRow(icon: "timer", iconColor: .blue, title: "通知间隔") {
-                    HStack(spacing: DesignTokens.Spacing.md) {
-                        TextField("输入间隔", text: $inputValue, onEditingChanged: { isEditing in
-                            if !isEditing {
-                                validateAndUpdateInterval()
-                            }
-                        })
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: DesignTokens.Layout.inputFieldWidth)
-                        .disabled(settings.isRunning)
-
-                        Picker("", selection: $selectedUnit) {
-                            ForEach(TimeUnit.allCases, id: \.self) { unit in
-                                Text(unit.rawValue).tag(unit)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(width: DesignTokens.Layout.pickerWidth)
-                        .disabled(settings.isRunning)
-                        .onChange(of: selectedUnit) { _, _ in
-                            validateAndUpdateInterval()
-                        }
-
-                        Text(settings.formattedInterval())
-                            .font(DesignTokens.Typography.value)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(.blue)
-                            .frame(minWidth: 80, alignment: .trailing)
-                    }
-                }
-
-                if let validationMessage = getIntervalValidationMessage() {
-                    ValidationHint(
-                        text: validationMessage.text,
-                        isWarning: validationMessage.isWarning
-                    )
-                }
-
-                InfoHint("范围：5秒到2小时；建议 15～60 分钟", color: .blue)
-
-                if settings.isRunning {
-                    LockHint("请先暂停才能修改频率")
-                }
-            }
-        }
-        .runningStateStyle(isRunning: settings.isRunning)
     }
 
     // MARK: - Rest Section
@@ -375,29 +261,6 @@ struct BasicSettingsView: View {
         }
     }
 
-    private func validateAndUpdateInterval() {
-        guard let value = Double(inputValue), value > 0 else {
-            // 如果输入无效，恢复为当前设置的值
-            initializeInputValue()
-            return
-        }
-
-        var seconds = value * selectedUnit.multiplier
-
-        // 限制范围：5秒到7200秒(2小时)
-        if seconds < 5 {
-            seconds = 5
-        }
-        if seconds > 7200 {
-            seconds = 7200
-        }
-
-        settings.intervalSeconds = seconds
-
-        // 更新输入框以反映修正后的值
-        initializeInputValue()
-    }
-
     private func validateAndUpdateRestInterval() {
         guard let value = Double(restInputValue), value > 0 else {
             // 如果输入无效，恢复为当前设置的值
@@ -421,17 +284,6 @@ struct BasicSettingsView: View {
         initializeRestInputValue()
     }
 
-    private func initializeInputValue() {
-        let seconds = settings.intervalSeconds
-        if seconds >= 60 && Int(seconds) % 60 == 0 {
-            selectedUnit = .minutes
-            inputValue = String(Int(seconds / 60))
-        } else {
-            selectedUnit = .seconds
-            inputValue = String(Int(seconds))
-        }
-    }
-
     // MARK: - Validation Message
 
     private struct ValidationMessage {
@@ -439,40 +291,13 @@ struct BasicSettingsView: View {
         let isWarning: Bool
     }
 
-    private func getIntervalValidationMessage() -> ValidationMessage? {
-        guard let value = Double(inputValue), value > 0 else {
-            return nil
-        }
-            
-        let seconds = value * selectedUnit.multiplier
-            
-        if seconds < 5 {
-            return ValidationMessage(
-                text: "⚠ 低于最小值 5 秒，已自动调整为 5 秒",
-                isWarning: true
-            )
-        } else if seconds > 7200 {
-            return ValidationMessage(
-                text: "⚠ 超过最大值 2 小时，已自动调整为 2 小时",
-                isWarning: true
-            )
-        } else if seconds >= 900 && seconds <= 3600 {
-            return ValidationMessage(
-                text: "✓ 在建议范围内",
-                isWarning: false
-            )
-        }
-            
-        return nil
-    }
-        
     private func getRestIntervalValidationMessage() -> ValidationMessage? {
         guard let value = Double(restInputValue), value > 0 else {
             return nil
         }
-            
+
         let seconds = value * restSelectedUnit.multiplier
-            
+
         if seconds < 5 {
             return ValidationMessage(
                 text: "⚠ 低于最小值 5 秒，已自动调整为 5 秒",
@@ -489,7 +314,7 @@ struct BasicSettingsView: View {
                 isWarning: false
             )
         }
-            
+
         return nil
     }
 }
@@ -497,14 +322,8 @@ struct BasicSettingsView: View {
 // MARK: - Preview
 
 #Preview {
-    @Previewable @State var inputValue = "30"
-    @Previewable @State var selectedUnit = BasicSettingsView.TimeUnit.seconds
-    
-    BasicSettingsView(
-        inputValue: $inputValue,
-        selectedUnit: $selectedUnit
-    )
-    .environmentObject(AppSettings())
-    .frame(width: 600)
-    .padding()
+    BasicSettingsView()
+        .environmentObject(AppSettings())
+        .frame(width: 600)
+        .padding()
 }

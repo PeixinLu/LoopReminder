@@ -530,63 +530,92 @@ struct TimerItemCard: View {
                         .disabled(settings.isRunning)
                         .focused(focusedField, equals: .timerBody(timer.id))
                 }
-                
-                // 通知频率
-                SettingRow(icon: "timer", iconColor: .blue, title: "间隔", labelWidth: 70) {
-                    VStack(alignment: .trailing, spacing: 6) {
-                        HStack(spacing: 6) {
-                            TextField("间隔", text: $intervalInputValue, onEditingChanged: { isEditing in
-                                isIntervalFocused = isEditing
-                                if !isEditing {
+
+                // 提醒类型选择
+                HStack {
+                    Text("提醒类型")
+                        .font(DesignTokens.Typography.sectionTitle)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+
+                Picker("", selection: $timer.reminderType) {
+                    ForEach(ReminderType.allCases, id: \.self) { type in
+                        Text(type.rawValue).tag(type)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .disabled(settings.isRunning)
+
+                if timer.reminderType == .interval {
+                    InfoHint("按照设定的时间间隔循环提醒", color: .blue)
+                } else {
+                    InfoHint("在每天的指定时间点提醒", color: .purple)
+                }
+
+                // 通知频率（仅间隔提醒模式）
+                if timer.reminderType == .interval {
+                    SettingRow(icon: "timer", iconColor: .blue, title: "间隔", labelWidth: 70) {
+                        VStack(alignment: .trailing, spacing: 6) {
+                            HStack(spacing: 6) {
+                                TextField("间隔", text: $intervalInputValue, onEditingChanged: { isEditing in
+                                    isIntervalFocused = isEditing
+                                    if !isEditing {
+                                        saveIntervalIfNeeded()
+                                    }
+                                })
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 50)
+                                .disabled(settings.isRunning)
+                                .focused(focusedField, equals: .timerInterval(timer.id))
+                                .onSubmit {
                                     saveIntervalIfNeeded()
                                 }
-                            })
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: 50)
-                            .disabled(settings.isRunning)
-                            .focused(focusedField, equals: .timerInterval(timer.id))
-                            .onSubmit {
-                                saveIntervalIfNeeded()
-                            }
-                            .onChange(of: intervalInputValue) { _, newValue in
-                                let filtered = newValue.filter { "0123456789.".contains($0) }
-                                if filtered != newValue {
-                                    intervalInputValue = filtered
-                                } else {
-                                    // 标记有修改，需要保存
-                                    needsSave = true
-                                    // 实时验证
+                                .onChange(of: intervalInputValue) { _, newValue in
+                                    let filtered = newValue.filter { "0123456789.".contains($0) }
+                                    if filtered != newValue {
+                                        intervalInputValue = filtered
+                                    } else {
+                                        // 标记有修改，需要保存
+                                        needsSave = true
+                                        // 实时验证
+                                        updateIntervalValidation()
+                                    }
+                                }
+
+                                Picker("", selection: $intervalSelectedUnit) {
+                                    ForEach(TimeUnit.allCases, id: \.self) { unit in
+                                        Text(unit.rawValue).tag(unit)
+                                    }
+                                }
+                                .pickerStyle(.segmented)
+                                .frame(width: 100)
+                                .disabled(settings.isRunning)
+                                .onChange(of: intervalSelectedUnit) { _, _ in
                                     updateIntervalValidation()
+                                    saveIntervalIfNeeded()
                                 }
                             }
-                            
-                            Picker("", selection: $intervalSelectedUnit) {
-                                ForEach(TimeUnit.allCases, id: \.self) { unit in
-                                    Text(unit.rawValue).tag(unit)
-                                }
+
+                            // 显示格式化后的时间
+                            Text(timer.formattedInterval())
+                                .font(.caption)
+                                .fontWeight(.medium)
+                                .foregroundStyle(.blue)
+
+                            // 显示验证消息
+                            if let message = intervalValidationMessage {
+                                Text(message)
+                                    .font(.caption2)
+                                    .foregroundStyle(.orange)
                             }
-                            .pickerStyle(.segmented)
-                            .frame(width: 100)
-                            .disabled(settings.isRunning)
-                            .onChange(of: intervalSelectedUnit) { _, _ in
-                                updateIntervalValidation()
-                                saveIntervalIfNeeded()
-                            }
-                        }
-                        
-                        // 显示格式化后的时间
-                        Text(timer.formattedInterval())
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundStyle(.blue)
-                        
-                        // 显示验证消息
-                        if let message = intervalValidationMessage {
-                            Text(message)
-                                .font(.caption2)
-                                .foregroundStyle(.orange)
                         }
                     }
+                }
+
+                // 定点时间配置（仅定点提醒模式）
+                if timer.reminderType == .scheduled {
+                    scheduledTimesSection
                 }
                 
                 // 休息一下
@@ -755,7 +784,83 @@ struct TimerItemCard: View {
             }
         }
     }
-    
+
+    // MARK: - Scheduled Times Section
+
+    private var scheduledTimesSection: some View {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
+            HStack {
+                Text("提醒时间")
+                    .font(DesignTokens.Typography.sectionTitle)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+
+            // 时间点列表
+            ForEach(timer.scheduledTimes) { time in
+                HStack(spacing: DesignTokens.Spacing.sm) {
+                    // 启用开关
+                    Toggle("", isOn: Binding(
+                        get: { time.enabled },
+                        set: { newValue in
+                            if let index = timer.scheduledTimes.firstIndex(where: { $0.id == time.id }) {
+                                timer.scheduledTimes[index].enabled = newValue
+                            }
+                        }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .disabled(settings.isRunning)
+
+                    // 时间选择器
+                    DatePicker("", selection: Binding(
+                        get: {
+                            Calendar.current.date(from: DateComponents(hour: time.hour, minute: time.minute)) ?? Date()
+                        },
+                        set: { newDate in
+                            let components = Calendar.current.dateComponents([.hour, .minute], from: newDate)
+                            if let index = timer.scheduledTimes.firstIndex(where: { $0.id == time.id }) {
+                                timer.scheduledTimes[index].hour = components.hour ?? 9
+                                timer.scheduledTimes[index].minute = components.minute ?? 0
+                            }
+                        }
+                    ), displayedComponents: .hourAndMinute)
+                    .datePickerStyle(.compact)
+                    .disabled(settings.isRunning)
+
+                    Spacer()
+
+                    // 删除按钮
+                    if timer.scheduledTimes.count > 1 {
+                        Button {
+                            timer.scheduledTimes.removeAll { $0.id == time.id }
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(settings.isRunning)
+                    }
+                }
+            }
+
+            // 添加新时间点按钮
+            Button {
+                let newTime = ScheduledTime(hour: 12, minute: 0, enabled: true)
+                timer.scheduledTimes.append(newTime)
+            } label: {
+                Label("添加时间点", systemImage: "plus.circle.fill")
+                    .font(.caption)
+            }
+            .buttonStyle(.bordered)
+            .disabled(settings.isRunning)
+
+            if timer.scheduledTimes.filter({ $0.enabled }).isEmpty {
+                InfoHint("请至少启用一个提醒时间点", color: .orange)
+            }
+        }
+    }
+
     // MARK: - Helper Methods
     
     private func initializeInputValues() {

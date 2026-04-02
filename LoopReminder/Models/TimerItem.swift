@@ -1,6 +1,33 @@
 import SwiftUI
 import Foundation
 
+// MARK: - Reminder Type
+
+enum ReminderType: String, Codable, CaseIterable {
+    case interval = "间隔提醒"
+    case scheduled = "定点提醒"
+}
+
+// MARK: - Scheduled Time
+
+struct ScheduledTime: Identifiable, Codable {
+    var id: UUID
+    var hour: Int      // 0-23
+    var minute: Int    // 0-59
+    var enabled: Bool  // 是否启用该时间点
+
+    init(id: UUID = UUID(), hour: Int = 9, minute: Int = 0, enabled: Bool = true) {
+        self.id = id
+        self.hour = hour
+        self.minute = minute
+        self.enabled = enabled
+    }
+
+    func formattedTime() -> String {
+        return String(format: "%02d:%02d", hour, minute)
+    }
+}
+
 // 计时器项目模型
 struct TimerItem: Identifiable, Codable {
     var id: UUID
@@ -13,7 +40,13 @@ struct TimerItem: Identifiable, Codable {
     var customColor: TimerColor? // 自定义颜色（优先于全局样式）
     var lastFireEpoch: Double // 上次触发时间
     var isRunning: Bool = false // 是否正在运行（不持久化）
-    
+
+    // 提醒类型
+    var reminderType: ReminderType = .interval
+
+    // 定点提醒时间列表
+    var scheduledTimes: [ScheduledTime] = [ScheduledTime(hour: 9, minute: 0)]
+
     // 计算属性：显示名称（使用标题，如果为空则用"计时器+数字"）
     var displayName: String {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -95,7 +128,9 @@ struct TimerItem: Identifiable, Codable {
         isRestEnabled: Bool = false,
         restSeconds: Double = 300,
         customColor: TimerColor? = nil,
-        lastFireEpoch: Double = 0
+        lastFireEpoch: Double = 0,
+        reminderType: ReminderType = .interval,
+        scheduledTimes: [ScheduledTime] = [ScheduledTime(hour: 9, minute: 0)]
     ) {
         self.id = id
         self.emoji = emoji
@@ -106,6 +141,8 @@ struct TimerItem: Identifiable, Codable {
         self.restSeconds = restSeconds
         self.customColor = customColor
         self.lastFireEpoch = lastFireEpoch
+        self.reminderType = reminderType
+        self.scheduledTimes = scheduledTimes
         self.isRunning = false
     }
     
@@ -177,5 +214,6 @@ struct TimerItem: Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, emoji, title, body, intervalSeconds
         case isRestEnabled, restSeconds, customColor, lastFireEpoch
+        case reminderType, scheduledTimes
     }
 }

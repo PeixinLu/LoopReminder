@@ -189,6 +189,8 @@ struct PreviewSectionView: View {
                                     position: .center,
                                     padding: 0,
                                     textColor: nil,
+                                    overlayMaterial: settings.overlayMaterial,
+                                    liquidGlassStyle: settings.liquidGlassStyle,
                                     onDismiss: { _ in }
                                 )
                             }

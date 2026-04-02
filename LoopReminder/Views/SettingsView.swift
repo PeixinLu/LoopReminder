@@ -6,8 +6,6 @@ struct SettingsView: View {
     @EnvironmentObject private var controller: ReminderController
 
     @State private var sendingTest = false
-    @State private var inputValue: String = ""
-    @State private var selectedUnit: BasicSettingsView.TimeUnit = .minutes
     @State private var selectedCategory: SettingsCategory = .timers
     @State private var countdownText: String = ""
     @State private var progressValue: Double = 0.0
@@ -72,10 +70,7 @@ struct SettingsView: View {
                 Group {
                     switch selectedCategory {
                     case .basic:
-                        BasicSettingsView(
-                            inputValue: $inputValue,
-                            selectedUnit: $selectedUnit
-                        )
+                        BasicSettingsView()
                     case .timers:
                         TimerManagementView()
                     case .style:
@@ -115,7 +110,6 @@ struct SettingsView: View {
         }
         .frame(width: 960, height: 680)
         .onAppear {
-            initializeInputValue()
             if settings.isRunning {
                 updateCountdown()
             }
@@ -139,20 +133,7 @@ struct SettingsView: View {
     }
     
     // MARK: - Helper Methods
-    
-    private func initializeInputValue() {
-        let seconds = settings.intervalSeconds
-        if seconds >= 60 && Int(seconds) % 60 == 0 {
-            // 如果是整分钟，默认显示分钟
-            selectedUnit = .minutes
-            inputValue = String(Int(seconds / 60))
-        } else {
-            // 否则显示秒
-            selectedUnit = .seconds
-            inputValue = String(Int(seconds))
-        }
-    }
-    
+
     private func updateCountdown() {
         guard settings.isRunning else {
             countdownText = ""

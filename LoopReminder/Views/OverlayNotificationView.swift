@@ -23,6 +23,8 @@ struct OverlayNotificationView: View {
     let position: AppSettings.OverlayPosition
     let padding: Double
     let textColor: Color?
+    let overlayMaterial: AppSettings.OverlayMaterial
+    let liquidGlassStyle: AppSettings.LiquidGlassStyle
     let onDismiss: (Bool) -> Void
     
     @State private var opacity: Double = 1.0
@@ -33,8 +35,12 @@ struct OverlayNotificationView: View {
     
     var body: some View {
         GeometryReader { geometry in
-            // 计算是否需要文字阴影（对比度较低时）
-            let needsTextShadow = shouldApplyTextShadow(backgroundColor: backgroundColor)
+            let isLiquidMaterial = overlayMaterial == .liquidGlass
+            let prefersHighContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+            let prefersReducedTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+            let primaryTextColor = resolvedPrimaryTextColor(isLiquidMaterial: isLiquidMaterial, prefersHighContrast: prefersHighContrast)
+            let secondaryTextColor = resolvedSecondaryTextColor(isLiquidMaterial: isLiquidMaterial, prefersHighContrast: prefersHighContrast)
+            let textShadowColor = resolvedTextShadowColor(isLiquidMaterial: isLiquidMaterial, prefersHighContrast: prefersHighContrast)
             
             // 处理字段显示逻辑
             let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -50,7 +56,6 @@ struct OverlayNotificationView: View {
                         Spacer()
                         Text(trimmedEmoji)
                             .font(.system(size: iconSize))
-                            .shadow(color: needsTextShadow ? .black.opacity(0.3) : .clear, radius: 2, x: 0, y: 1)
                         Spacer()
                     }
                 } else {
@@ -60,13 +65,11 @@ struct OverlayNotificationView: View {
                         if trimmedEmoji.isEmpty && !trimmedTitle.isEmpty {
                             Image(systemName: "bell.fill")
                                 .font(.system(size: iconSize))
-                                .foregroundColor(textColor ?? .white)
-                                .shadow(color: needsTextShadow ? .black.opacity(0.3) : .clear, radius: 2, x: 0, y: 1)
+                                .foregroundColor(primaryTextColor)
                         } else if !trimmedEmoji.isEmpty {
                             // 显示emoji
                             Text(trimmedEmoji)
                                 .font(.system(size: iconSize))
-                                .shadow(color: needsTextShadow ? .black.opacity(0.3) : .clear, radius: 2, x: 0, y: 1)
                         }
                         
                         VStack(alignment: .leading, spacing: 4) {
@@ -74,17 +77,19 @@ struct OverlayNotificationView: View {
                             if !trimmedTitle.isEmpty {
                                 Text(trimmedTitle)
                                     .font(.system(size: titleFontSize, weight: .semibold))
-                                    .foregroundColor(textColor ?? .white)
-                                    .shadow(color: needsTextShadow ? .black.opacity(0.5) : .clear, radius: 2, x: 0, y: 1)
+                                    .monospacedDigit()
+                                    .foregroundColor(primaryTextColor)
+                                    .shadow(color: textShadowColor, radius: 9, x: 0, y: 0)
                             }
                             
                             // 只在body不为空时显示
                             if !trimmedBody.isEmpty {
                                 Text(trimmedBody)
                                     .font(.system(size: bodyFontSize))
-                                    .foregroundColor((textColor ?? .white).opacity(0.9))
+                                    .monospacedDigit()
+                                    .foregroundColor(secondaryTextColor)
                                     .lineLimit(2)
-                                    .shadow(color: needsTextShadow ? .black.opacity(0.4) : .clear, radius: 2, x: 0, y: 1)
+                                    .shadow(color: textShadowColor, radius: 8, x: 0, y: 0)
                             }
                         }
                         
@@ -96,28 +101,64 @@ struct OverlayNotificationView: View {
             .padding(.horizontal, overlayWidth < 150 ? 8 : 20)
             .frame(width: overlayWidth, height: overlayHeight)
             .background(
-                ZStack {
-                    if useBlur {
-                        // ... existing code ...
-                        // 模糊背景
-                        VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
-                            .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-                        // ... existing code ...
-                        // 第一层颜色叠加（基础颜色层）
-                        RoundedRectangle(cornerRadius: cornerRadius)
-                            .fill(backgroundColor.opacity(backgroundOpacity * 0.5 * backgroundOpacityMultiplier))
-                        // ... existing code ...
-                        // 第二层颜色叠加（强化颜色层）
-                        RoundedRectangle(cornerRadius: cornerRadius)
-                            .fill(backgroundColor.opacity(backgroundOpacity * blurIntensity * 0.6 * backgroundOpacityMultiplier))
-                    } else {
-                        // ... existing code ...
-                        // 纯色背景
-                        RoundedRectangle(cornerRadius: cornerRadius)
-                            .fill(backgroundColor.opacity(backgroundOpacity * backgroundOpacityMultiplier))
+                Group {
+                    switch overlayMaterial {
+                    case .basic:
+                        ZStack {
+                            if useBlur {
+                                // 模糊背景
+                                VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
+                                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                                // 第一层颜色叠加（基础颜色层）
+                                RoundedRectangle(cornerRadius: cornerRadius)
+                                    .fill(backgroundColor.opacity(backgroundOpacity * 0.5 * backgroundOpacityMultiplier))
+                                // 第二层颜色叠加（强化颜色层）
+                                RoundedRectangle(cornerRadius: cornerRadius)
+                                    .fill(backgroundColor.opacity(backgroundOpacity * blurIntensity * 0.6 * backgroundOpacityMultiplier))
+                            } else {
+                                // 纯色背景
+                                RoundedRectangle(cornerRadius: cornerRadius)
+                                    .fill(backgroundColor.opacity(backgroundOpacity * backgroundOpacityMultiplier))
+                            }
+                        }
+                        .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
+                    case .liquidGlass:
+                        // 使用 NSGlassEffectView：兼顾液态玻璃观感与更稳定的实时背板更新
+                        if #available(macOS 26.0, *) {
+                            ZStack {
+                                if prefersReducedTransparency {
+                                    RoundedRectangle(cornerRadius: cornerRadius)
+                                        .fill(backgroundColor.opacity(max(0.45, backgroundOpacity * 0.7) * backgroundOpacityMultiplier))
+                                } else {
+                                    LiquidGlassEffectView(
+                                        cornerRadius: cornerRadius,
+                                        style: liquidGlassStyle,
+                                        tintColor: liquidGlassTintColor(
+                                            multiplier: backgroundOpacityMultiplier,
+                                            prefersHighContrast: prefersHighContrast
+                                        )
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                                }
+
+                                RoundedRectangle(cornerRadius: cornerRadius)
+                                    .stroke(.white.opacity(0.42 * backgroundOpacityMultiplier), lineWidth: 0.8)
+                            }
+                            .shadow(color: .black.opacity(0.2), radius: 12, x: 0, y: 6)
+                        } else {
+                            // 旧系统回退
+                            ZStack {
+                                VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
+                                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                                RoundedRectangle(cornerRadius: cornerRadius)
+                                    .fill(backgroundColor.opacity(backgroundOpacity * 0.28 * backgroundOpacityMultiplier))
+                                RoundedRectangle(cornerRadius: cornerRadius)
+                                    .stroke(.white.opacity(0.35 * backgroundOpacityMultiplier), lineWidth: 0.8)
+                            }
+                            .shadow(color: .black.opacity(0.24), radius: 12, x: 0, y: 6)
+                        }
                     }
                 }
-                .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
             )
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .opacity(opacity)
@@ -313,15 +354,52 @@ struct OverlayNotificationView: View {
         case fromBottom
     }
     
-    // MARK: - 对比度检测
-    
-    /// 判断是否需要应用文字阴影（基于背景色亮度）
-    private func shouldApplyTextShadow(backgroundColor: Color) -> Bool {
+    private func resolvedPrimaryTextColor(isLiquidMaterial: Bool, prefersHighContrast: Bool) -> Color {
+        if isLiquidMaterial {
+            // 液态玻璃模式：根据系统外观选择颜色
+            let isDarkMode = isDarkModeEnabled()
+            return isDarkMode ? .white : .black
+        }
+        // 基本材质：使用白色
+        return .white
+    }
+
+    private func resolvedSecondaryTextColor(isLiquidMaterial: Bool, prefersHighContrast: Bool) -> Color {
+        if isLiquidMaterial {
+            // 液态玻璃模式：根据系统外观选择颜色
+            let isDarkMode = isDarkModeEnabled()
+            return isDarkMode ? .white.opacity(0.9) : .black.opacity(0.85)
+        }
+        // 基本材质：使用白色
+        return .white.opacity(0.95)
+    }
+
+    private func resolvedTextShadowColor(isLiquidMaterial: Bool, prefersHighContrast: Bool) -> Color {
+        if isLiquidMaterial {
+            // 液态玻璃模式：根据系统外观选择阴影颜色
+            let isDarkMode = isDarkModeEnabled()
+            return isDarkMode ? .black.opacity(prefersHighContrast ? 0.5 : 0.3) : .white.opacity(prefersHighContrast ? 0.4 : 0.2)
+        }
+        return .black.opacity(prefersHighContrast ? 0.78 : 0.62)
+    }
+
+    private func isDarkModeEnabled() -> Bool {
+        guard let appearance = NSApp?.effectiveAppearance else { return true }
+        let bestMatch = appearance.bestMatch(from: [.darkAqua, .aqua])
+        return bestMatch == .darkAqua
+    }
+
+    @available(macOS 26.0, *)
+    private func liquidGlassTintColor(multiplier: Double, prefersHighContrast: Bool) -> NSColor? {
         let components = backgroundColor.components()
-        // 计算相对亮度（感知亮度）
-        let luminance = 0.299 * components.red + 0.587 * components.green + 0.114 * components.blue
-        // 当亮度大于 0.5 时（偏亮色），需要阴影以增强对比度
-        return luminance > 0.5
+        let contrastBoost = prefersHighContrast ? 1.2 : 1.0
+        let alpha = max(0, min(1, backgroundOpacity * 0.18 * multiplier * contrastBoost))
+        return NSColor(
+            calibratedRed: components.red,
+            green: components.green,
+            blue: components.blue,
+            alpha: alpha
+        )
     }
 }
 
@@ -330,7 +408,7 @@ struct OverlayNotificationView: View {
 struct VisualEffectBlur: NSViewRepresentable {
     var material: NSVisualEffectView.Material
     var blendingMode: NSVisualEffectView.BlendingMode
-    
+
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
         view.material = material
@@ -338,9 +416,42 @@ struct VisualEffectBlur: NSViewRepresentable {
         view.state = .active
         return view
     }
-    
+
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
         nsView.material = material
         nsView.blendingMode = blendingMode
+    }
+}
+
+@available(macOS 26.0, *)
+private struct LiquidGlassEffectView: NSViewRepresentable {
+    let cornerRadius: Double
+    let style: AppSettings.LiquidGlassStyle
+    let tintColor: NSColor?
+
+    func makeNSView(context: Context) -> NSGlassEffectView {
+        let view = NSGlassEffectView()
+        view.cornerRadius = cornerRadius
+        view.style = style.nsStyle
+        view.tintColor = tintColor
+        return view
+    }
+
+    func updateNSView(_ nsView: NSGlassEffectView, context: Context) {
+        nsView.cornerRadius = cornerRadius
+        nsView.style = style.nsStyle
+        nsView.tintColor = tintColor
+    }
+}
+
+@available(macOS 26.0, *)
+private extension AppSettings.LiquidGlassStyle {
+    var nsStyle: NSGlassEffectView.Style {
+        switch self {
+        case .clear:
+            return .clear
+        case .regular:
+            return .regular
+        }
     }
 }

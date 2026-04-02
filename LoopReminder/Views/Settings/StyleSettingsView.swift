@@ -17,34 +17,34 @@ struct StyleSettingsView: View {
             if settings.notificationMode == .overlay {
                 ScrollView {
                     VStack(spacing: DesignTokens.Spacing.md) {
+                        // 材质设置
+                        materialSection
+
+                        Divider().padding(.vertical, DesignTokens.Spacing.xs)
+
                         // 颜色设置
                         colorSection
                         opacitySection
-                        
+
                         Divider().padding(.vertical, DesignTokens.Spacing.xs)
-                        
+
                         // 尺寸设置
                         widthSection
                         heightSection
-                        
+
                         Divider().padding(.vertical, DesignTokens.Spacing.xs)
-                        
+
                         // 外观设置
                         cornerRadiusSection
                         edgePaddingSection
                         contentSpacingSection
-                        
+
                         Divider().padding(.vertical, DesignTokens.Spacing.xs)
-                        
+
                         // 字体设置
                         titleFontSizeSection
                         bodyFontSizeSection
                         iconSizeSection
-                        
-                        Divider().padding(.vertical, DesignTokens.Spacing.xs)
-                        
-                        // 模糊效果
-                        blurSection
                     }
                     .padding(.bottom, DesignTokens.Spacing.xl)
                     .padding(.trailing, DesignTokens.Spacing.lg)
@@ -208,28 +208,58 @@ struct StyleSettingsView: View {
         }
     }
     
-    private var blurSection: some View {
+    private var materialSection: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-            SettingRow(icon: "camera.filters", iconColor: .purple, title: "模糊效果") {
-                Toggle("", isOn: $settings.overlayUseBlur)
-                    .toggleStyle(.switch)
-                    .disabled(settings.isRunning)
-                    .labelsHidden()
-            }
-            
-            if settings.overlayUseBlur {
-                SettingRow(icon: "slider.horizontal.3", iconColor: .purple, title: "模糊强度") {
-                    SliderControl(
-                        value: $settings.overlayBlurIntensity,
-                        range: 0.1...1.0,
-                        step: 0.1,
-                        format: "%.0f",
-                        unit: "%",
-                        color: .purple,
-                        disabled: settings.isRunning,
-                        valueMultiplier: 100
-                    )
+            SettingRow(icon: "cube.transparent", iconColor: .purple, title: "材质") {
+                Picker("", selection: $settings.overlayMaterial) {
+                    ForEach(AppSettings.OverlayMaterial.allCases, id: \.self) { material in
+                        Text(material.rawValue).tag(material)
+                    }
                 }
+                .pickerStyle(.segmented)
+                .disabled(settings.isRunning)
+                .frame(width: 200)
+            }
+
+            if settings.overlayMaterial == .basic {
+                // 基本材质：显示模糊效果选项
+                SettingRow(icon: "camera.filters", iconColor: .purple, title: "模糊效果") {
+                    Toggle("", isOn: $settings.overlayUseBlur)
+                        .toggleStyle(.switch)
+                        .disabled(settings.isRunning)
+                        .labelsHidden()
+                }
+
+                if settings.overlayUseBlur {
+                    SettingRow(icon: "slider.horizontal.3", iconColor: .purple, title: "模糊强度") {
+                        SliderControl(
+                            value: $settings.overlayBlurIntensity,
+                            range: 0.1...1.0,
+                            step: 0.1,
+                            format: "%.0f",
+                            unit: "%",
+                            color: .purple,
+                            disabled: settings.isRunning,
+                            valueMultiplier: 100
+                        )
+                    }
+                }
+
+                InfoHint("基本材质使用传统模糊效果，提供稳定的视觉体验", color: .purple)
+            } else {
+                // 液态玻璃材质：显示效果类型选项
+                SettingRow(icon: "drop.fill", iconColor: .cyan, title: "液态玻璃效果") {
+                    Picker("", selection: $settings.liquidGlassStyle) {
+                        ForEach(AppSettings.LiquidGlassStyle.allCases, id: \.self) { style in
+                            Text(style.rawValue).tag(style)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .disabled(settings.isRunning)
+                    .frame(width: 150)
+                }
+
+                InfoHint("液态玻璃是 macOS 26 新增的视觉效果，提供更通透的质感", color: .cyan)
             }
         }
     }

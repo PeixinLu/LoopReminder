@@ -12,7 +12,10 @@ final class ReminderController: ObservableObject {
     private var timers: [UUID: Timer] = [:] // 每个计时器的 Timer
     private var restTimers: [UUID: Timer] = [:] // 每个计时器的休息 Timer
     private var restingTimers: Set<UUID> = [] // 正在休息的计时器
-    
+
+    // 定点提醒支持
+    private var scheduledTimers: [UUID: Timer] = [:] // 定点提醒的 Timer
+
     // 多通知管理
     private var overlayWindows: [UUID: NSPanel] = [:] // 每个计时器的通知窗口
     private var notificationOrder: [UUID] = [] // 通知显示顺序（从上到下）
@@ -55,6 +58,8 @@ final class ReminderController: ObservableObject {
         let position: AppSettings.OverlayPosition
         let padding: Double
         let textColor: Color?
+        let overlayMaterial: AppSettings.OverlayMaterial
+        let liquidGlassStyle: AppSettings.LiquidGlassStyle
     }
 
     func ensurePermission() async {
@@ -69,33 +74,127 @@ final class ReminderController: ObservableObject {
     }
 
     func start(settings: AppSettings) {
-        // 启动所有有效的计时器
+        settingsRef = settings
+        ensureLockMonitoring()
+        stop()
+
+        // 启动所有有效的计时器，根据各自的提醒类型调度
         let validTimers = settings.timers.filter { $0.isContentValid() }
         guard !validTimers.isEmpty else {
             print("⚠️ 无法启动：至少需要有一个内容有效的计时器")
             return
         }
-        
-        settingsRef = settings
-        ensureLockMonitoring()
-        logger.log("启动计时器: 共 \(validTimers.count) 个, 模式 \(settings.notificationMode.rawValue)")
-        
-        stop()
 
-        let now = Date()
-        // 为每个有效的计时器安排定时器
+        logger.log("启动计时器: 共 \(validTimers.count) 个, 模式 \(settings.notificationMode.rawValue)")
+
         for timer in validTimers {
-            let nextDate = now.addingTimeInterval(timer.intervalSeconds)
-            scheduleTimer(for: timer.id, fireAt: nextDate, interval: timer.intervalSeconds, settings: settings)
+            switch timer.reminderType {
+            case .interval:
+                scheduleIntervalTimer(for: timer, settings: settings)
+            case .scheduled:
+                scheduleScheduledTimers(for: timer, settings: settings)
+            }
             // 标记为运行中
             if let index = settings.timers.firstIndex(where: { $0.id == timer.id }) {
                 settings.timers[index].isRunning = true
             }
         }
 
-        // 启动时弹出一次通知（固定样式），不影响计时进度
+        // 启动时弹出一次通知
         Task {
             await self.sendStartNotification(settings: settings, count: validTimers.count)
+        }
+    }
+
+    // MARK: - Interval Timer Scheduling
+
+    private func scheduleIntervalTimer(for timer: TimerItem, settings: AppSettings) {
+        let now = Date()
+        let nextDate = now.addingTimeInterval(timer.intervalSeconds)
+        scheduleTimer(for: timer.id, fireAt: nextDate, interval: timer.intervalSeconds, settings: settings)
+        logger.log("间隔计时器已安排: \(timer.displayName), 间隔 \(timer.intervalSeconds) 秒")
+    }
+
+    // MARK: - Scheduled Timer Scheduling
+
+    private func scheduleScheduledTimers(for timer: TimerItem, settings: AppSettings) {
+        let enabledTimes = timer.scheduledTimes.filter { $0.enabled }
+        guard !enabledTimes.isEmpty else {
+            logger.log("⚠️ 计时器 \(timer.displayName) 没有启用的定点时间")
+            return
+        }
+
+        for scheduledTime in enabledTimes {
+            let nextFireDate = calculateNextFireDate(hour: scheduledTime.hour, minute: scheduledTime.minute)
+            scheduleScheduledTimer(for: timer, timeID: scheduledTime.id, fireAt: nextFireDate, settings: settings)
+        }
+
+        logger.log("定点计时器已安排: \(timer.displayName), 共 \(enabledTimes.count) 个时间点")
+    }
+
+    /// 计算下一个触发时间
+    private func calculateNextFireDate(hour: Int, minute: Int) -> Date {
+        let now = Date()
+        let calendar = Calendar.current
+
+        // 构造今天的指定时间
+        var components = calendar.dateComponents([.year, .month, .day], from: now)
+        components.hour = hour
+        components.minute = minute
+        components.second = 0
+
+        let todayTarget = calendar.date(from: components) ?? now
+
+        // 如果今天的指定时间已经过了，则设置为明天
+        if todayTarget <= now {
+            components.day! += 1
+            return calendar.date(from: components) ?? now
+        } else {
+            return todayTarget
+        }
+    }
+
+    /// 安排定点提醒定时器
+    private func scheduleScheduledTimer(for timer: TimerItem, timeID: UUID, fireAt date: Date, settings: AppSettings) {
+        // 每天 24 小时 = 86400 秒
+        let interval: TimeInterval = 86400
+
+        let t = Timer(fire: date, interval: interval, repeats: true) { [weak self, weak settings] _ in
+            guard let self, let settings else { return }
+            Task {
+                await self.sendScheduledNotification(timer: timer, settings: settings)
+            }
+        }
+        self.scheduledTimers[timeID] = t
+        RunLoop.main.add(t, forMode: .common)
+
+        logger.log("定点提醒已安排: \(timer.displayName) - \(date.formatted(date: .abbreviated, time: .shortened))")
+    }
+
+    /// 发送定点提醒通知
+    private func sendScheduledNotification(timer: TimerItem, settings: AppSettings) async {
+        let content = buildContent(timer: timer)
+        let style = buildOverlayStyle(timer: timer, settings: settings)
+
+        logger.log("定点提醒触发: \(timer.displayName) - \(content.title.isEmpty ? "(无标题)" : content.title)")
+
+        // 创建临时 TimerItem 用于发送通知（不影响原有计时器状态）
+        let tempTimerItem = TimerItem(
+            emoji: timer.emoji,
+            title: timer.title,
+            body: timer.body,
+            intervalSeconds: 86400,
+            isRestEnabled: false,
+            restSeconds: 0,
+            customColor: timer.customColor,
+            lastFireEpoch: Date().timeIntervalSince1970
+        )
+
+        switch settings.notificationMode {
+        case .system:
+            await sendSystemNotification(content: content)
+        case .overlay:
+            showOverlayNotification(timer: tempTimerItem, settings: settings, content: content, style: style, triggerRestOnDismiss: false)
         }
     }
 
@@ -105,13 +204,19 @@ final class ReminderController: ObservableObject {
             timer.invalidate()
         }
         timers.removeAll()
-        
+
         for (_, timer) in restTimers {
             timer.invalidate()
         }
         restTimers.removeAll()
         restingTimers.removeAll()
-        
+
+        // 停止定点提醒计时器
+        for (_, timer) in scheduledTimers {
+            timer.invalidate()
+        }
+        scheduledTimers.removeAll()
+
         // 标记所有计时器为未运行
         if var allTimers = settingsRef?.timers {
             for i in allTimers.indices {
@@ -119,7 +224,7 @@ final class ReminderController: ObservableObject {
             }
             settingsRef?.timers = allTimers
         }
-        
+
         isResting = false
         // 停止时关闭所有未关闭的通知弹窗
         closeOverlay()
@@ -133,26 +238,30 @@ final class ReminderController: ObservableObject {
             print("⚠️ 无法启动计时器：内容无效")
             return
         }
-        
+
         settingsRef = settings
         ensureLockMonitoring()
-        
+
         // 如果已经在运行，先停止
-        if timers[timerID] != nil {
+        if timers[timerID] != nil || !scheduledTimers.filter({ $0.key == timerID }).isEmpty {
             stopTimer(timerID, settings: settings)
         }
-        
-        let now = Date()
-        let nextDate = now.addingTimeInterval(timer.intervalSeconds)
-        scheduleTimer(for: timerID, fireAt: nextDate, interval: timer.intervalSeconds, settings: settings)
-        
+
+        // 根据提醒类型调度
+        switch timer.reminderType {
+        case .interval:
+            scheduleIntervalTimer(for: timer, settings: settings)
+        case .scheduled:
+            scheduleScheduledTimers(for: timer, settings: settings)
+        }
+
         // 标记为运行中
         if let index = settings.timers.firstIndex(where: { $0.id == timerID }) {
             settings.timers[index].isRunning = true
         }
-        
+
         logger.log("启动计时器: \(timer.displayName)")
-        
+
         // 启动单个计时器时也显示通知
         Task {
             await self.sendSingleTimerStartNotification(timerName: timer.displayName, settings: settings)
@@ -166,7 +275,7 @@ final class ReminderController: ObservableObject {
             timer.invalidate()
             timers.removeValue(forKey: timerID)
         }
-        
+
         // 停止休息计时器
         if let restTimer = restTimers[timerID] {
             restTimer.invalidate()
@@ -174,7 +283,17 @@ final class ReminderController: ObservableObject {
         }
         restingTimers.remove(timerID)
         updateRestingState()
-        
+
+        // 停止该计时器关联的所有定点提醒定时器
+        if let timerItem = settings.timers.first(where: { $0.id == timerID }) {
+            for scheduledTime in timerItem.scheduledTimes {
+                if let scheduledTimer = scheduledTimers[scheduledTime.id] {
+                    scheduledTimer.invalidate()
+                    scheduledTimers.removeValue(forKey: scheduledTime.id)
+                }
+            }
+        }
+
         // 标记为未运行
         if let index = settings.timers.firstIndex(where: { $0.id == timerID }) {
             settings.timers[index].isRunning = false
@@ -360,7 +479,7 @@ final class ReminderController: ObservableObject {
     private func buildOverlayStyle(timer: TimerItem, settings: AppSettings) -> OverlayStyle {
         // 计时器自定义颜色优先于全局配置
         let backgroundColor = timer.customColor?.toColor() ?? settings.getOverlayColor()
-        
+
         return OverlayStyle(
             backgroundColor: backgroundColor,
             backgroundOpacity: settings.overlayOpacity,
@@ -380,7 +499,9 @@ final class ReminderController: ObservableObject {
             animationStyle: settings.animationStyle,
             position: settings.overlayPosition,
             padding: settings.overlayEdgePadding,
-            textColor: nil
+            textColor: nil,
+            overlayMaterial: settings.overlayMaterial,
+            liquidGlassStyle: settings.liquidGlassStyle
         )
     }
     
@@ -389,7 +510,7 @@ final class ReminderController: ObservableObject {
         let background = isDark ? Color(red: 0.12, green: 0.14, blue: 0.16) : Color.white
         let opacity = isDark ? 0.85 : 0.95
         let textColor: Color = isDark ? .white : Color(red: 0.12, green: 0.14, blue: 0.16)
-        
+
         return OverlayStyle(
             backgroundColor: background,
             backgroundOpacity: opacity,
@@ -409,7 +530,9 @@ final class ReminderController: ObservableObject {
             animationStyle: .fade,
             position: settings.overlayPosition,
             padding: settings.overlayEdgePadding,
-            textColor: textColor
+            textColor: textColor,
+            overlayMaterial: settings.overlayMaterial,
+            liquidGlassStyle: settings.liquidGlassStyle
         )
     }
 
@@ -722,6 +845,8 @@ final class ReminderController: ObservableObject {
             position: style.position,
             padding: padding,
             textColor: style.textColor,
+            overlayMaterial: style.overlayMaterial,
+            liquidGlassStyle: style.liquidGlassStyle,
             onDismiss: { [weak self, weak window, timerID = timer.id] isUserDismiss in
                 Task {
                     guard let self, let w = window else { return }
