@@ -8,6 +8,11 @@
 import SwiftUI
 import Combine
 
+// 窗口关闭时保存修改的通知
+extension Notification.Name {
+    static let settingsWindowWillClose = Notification.Name("settingsWindowWillClose")
+}
+
 struct TimerManagementView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var controller: ReminderController
@@ -345,6 +350,14 @@ struct TimerItemCard: View {
                 settings.objectWillChange.send()
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: .settingsWindowWillClose)) { _ in
+            // 窗口关闭时保存所有修改
+            if needsSave {
+                saveIntervalIfNeeded()
+                saveRestIntervalIfNeeded()
+                settings.objectWillChange.send()
+            }
+        }
     }
     
     // MARK: - Collapsed View
@@ -494,11 +507,11 @@ struct TimerItemCard: View {
     }
     
     // MARK: - Expanded View
-    
+
     private var expandedView: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
             Divider()
-            
+
             VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
                 // 计时器设置标题
                 Text("计时器设置")
@@ -510,7 +523,7 @@ struct TimerItemCard: View {
                     HStack(spacing: 6) {
                         TextField("", text: $timer.emoji)
                             .textFieldStyle(.roundedBorder)
-                            .disabled(settings.isRunning)
+                            .disabled(timer.isRunning)
                             .focused(focusedField, equals: .timerEmoji(timer.id))
                             .frame(width: 50)
                         
@@ -530,14 +543,14 @@ struct TimerItemCard: View {
                             }
                         }
                         .controlSize(.small)
-                        .disabled(settings.isRunning)
+                        .disabled(timer.isRunning)
                     }
                 }
                 
                 SettingRow(icon: "textformat", iconColor: .green, title: "标题", labelWidth: 70) {
                     TextField("计时器名称", text: $timer.title)
                         .textFieldStyle(.roundedBorder)
-                        .disabled(settings.isRunning)
+                        .disabled(timer.isRunning)
                         .focused(focusedField, equals: .timerTitle(timer.id))
                 }
                 
@@ -545,7 +558,7 @@ struct TimerItemCard: View {
                     TextField("通知内容", text: $timer.body, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
                         .lineLimit(2...4)
-                        .disabled(settings.isRunning)
+                        .disabled(timer.isRunning)
                         .focused(focusedField, equals: .timerBody(timer.id))
                 }
 
@@ -563,7 +576,7 @@ struct TimerItemCard: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .disabled(settings.isRunning)
+                .disabled(timer.isRunning)
 
                 if timer.reminderType == .interval {
                     InfoHint("按照设定的时间间隔循环提醒", color: .blue)
@@ -584,7 +597,7 @@ struct TimerItemCard: View {
                                 })
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 50)
-                                .disabled(settings.isRunning)
+                                .disabled(timer.isRunning)
                                 .focused(focusedField, equals: .timerInterval(timer.id))
                                 .onSubmit {
                                     saveIntervalIfNeeded()
@@ -608,7 +621,7 @@ struct TimerItemCard: View {
                                 }
                                 .pickerStyle(.segmented)
                                 .frame(width: 100)
-                                .disabled(settings.isRunning)
+                                .disabled(timer.isRunning)
                                 .onChange(of: intervalSelectedUnit) { _, _ in
                                     updateIntervalValidation()
                                     saveIntervalIfNeeded()
@@ -645,7 +658,7 @@ struct TimerItemCard: View {
                     Toggle("", isOn: $timer.isRestEnabled)
                         .labelsHidden()
                         .toggleStyle(.switch)
-                        .disabled(settings.isRunning)
+                        .disabled(timer.isRunning)
                 }
                 
                 if timer.isRestEnabled {
@@ -660,7 +673,7 @@ struct TimerItemCard: View {
                                 })
                                 .textFieldStyle(.roundedBorder)
                                 .frame(width: 50)
-                                .disabled(settings.isRunning)
+                                .disabled(timer.isRunning)
                                 .focused(focusedField, equals: .timerRest(timer.id))
                                 .onSubmit {
                                     saveRestIntervalIfNeeded()
@@ -684,7 +697,7 @@ struct TimerItemCard: View {
                                 }
                                 .pickerStyle(.segmented)
                                 .frame(width: 100)
-                                .disabled(settings.isRunning)
+                                .disabled(timer.isRunning)
                                 .onChange(of: restSelectedUnit) { _, _ in
                                     updateRestValidation()
                                     saveRestIntervalIfNeeded()
@@ -726,15 +739,26 @@ struct TimerItemCard: View {
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)
-                    .disabled(settings.isRunning)
+                    .disabled(timer.isRunning)
                 }
                 
-                if settings.isRunning {
+                if timer.isRunning {
                     LockHint("请先暂停才能修改")
                 }
             }
             .padding(DesignTokens.Spacing.md)
             .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle()) // 让整个区域可点击
+            .onTapGesture {
+                // 点击空白区域时移除焦点，触发保存
+                if isIntervalFocused || isRestFocused {
+                    focusedField.wrappedValue = nil
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        self.saveIntervalIfNeeded()
+                        self.saveRestIntervalIfNeeded()
+                    }
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -760,7 +784,7 @@ struct TimerItemCard: View {
                 ))
                 .labelsHidden()
                 .toggleStyle(.switch)
-                .disabled(settings.isRunning)
+                .disabled(timer.isRunning)
             }
 
             if timer.soundName != nil {
@@ -805,7 +829,7 @@ struct TimerItemCard: View {
                                     .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
                             )
                         }
-                        .disabled(settings.isRunning)
+                        .disabled(timer.isRunning)
 
                         // 预览按钮
                         Button {
@@ -816,6 +840,7 @@ struct TimerItemCard: View {
                         }
                         .buttonStyle(.bordered)
                         .controlSize(.small)
+                        .disabled(timer.isRunning)
                         .help("播放预览")
                     }
 
@@ -860,7 +885,7 @@ struct TimerItemCard: View {
                 ))
                 .labelsHidden()
                 .toggleStyle(.switch)
-                .disabled(settings.isRunning)
+                .disabled(timer.isRunning)
             }
             
             if timer.customColor != nil {
@@ -871,7 +896,7 @@ struct TimerItemCard: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    .disabled(settings.isRunning)
+                    .disabled(timer.isRunning)
                     .onChange(of: selectedColorType) { _, newValue in
                         updateTimerColor(newValue)
                     }
@@ -879,7 +904,7 @@ struct TimerItemCard: View {
                     
                     if selectedColorType == .custom {
                         ColorPicker("自定义颜色", selection: $customColor)
-                            .disabled(settings.isRunning)
+                            .disabled(timer.isRunning)
                             .onChange(of: customColor) { _, newColor in
                                 let components = newColor.components()
                                 timer.customColor = TimerItem.TimerColor(
@@ -922,7 +947,7 @@ struct TimerItemCard: View {
                     ))
                     .labelsHidden()
                     .toggleStyle(.switch)
-                    .disabled(settings.isRunning)
+                    .disabled(timer.isRunning)
 
                     // 时间选择器
                     DatePicker("", selection: Binding(
@@ -938,7 +963,7 @@ struct TimerItemCard: View {
                         }
                     ), displayedComponents: .hourAndMinute)
                     .datePickerStyle(.compact)
-                    .disabled(settings.isRunning)
+                    .disabled(timer.isRunning)
 
                     Spacer()
 
@@ -951,7 +976,7 @@ struct TimerItemCard: View {
                                 .foregroundStyle(.red)
                         }
                         .buttonStyle(.plain)
-                        .disabled(settings.isRunning)
+                        .disabled(timer.isRunning)
                     }
                 }
             }
@@ -965,7 +990,7 @@ struct TimerItemCard: View {
                     .font(.caption)
             }
             .buttonStyle(.bordered)
-            .disabled(settings.isRunning)
+            .disabled(timer.isRunning)
 
             if timer.scheduledTimes.filter({ $0.enabled }).isEmpty {
                 InfoHint("请至少启用一个提醒时间点", color: .orange)

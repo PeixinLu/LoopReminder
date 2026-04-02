@@ -136,6 +136,8 @@ struct LoopReminderApp: App {
                     settingsWindowOpen = false
                     // 切换回 accessory 模式，隐藏 Dock 图标
                     NSApp.setActivationPolicy(.accessory)
+                    // 发送通知，让所有组件保存修改
+                    NotificationCenter.default.post(name: .settingsWindowWillClose, object: nil)
                 }
         }
         .windowStyle(.hiddenTitleBar)
