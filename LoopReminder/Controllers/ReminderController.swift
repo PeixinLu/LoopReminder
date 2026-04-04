@@ -178,6 +178,9 @@ final class ReminderController: ObservableObject {
 
         logger.log("定点提醒触发: \(timer.displayName) - \(content.title.isEmpty ? "(无标题)" : content.title)")
 
+        // 播放提示音
+        playSound(for: timer)
+
         // 创建临时 TimerItem 用于发送通知（不影响原有计时器状态）
         let tempTimerItem = TimerItem(
             emoji: timer.emoji,
@@ -429,8 +432,18 @@ final class ReminderController: ObservableObject {
 
     /// 播放提示音
     private func playSound(for timer: TimerItem) {
-        guard let soundName = timer.soundName else { return }
-        NSSound(named: NSSound.Name(soundName))?.play()
+        guard let soundName = timer.soundName else {
+            logger.log("提示音已禁用（静音）")
+            return
+        }
+        DispatchQueue.main.async {
+            if let sound = NSSound(named: NSSound.Name(soundName)) {
+                sound.play()
+                self.logger.log("播放提示音: \(soundName)")
+            } else {
+                self.logger.log("⚠️ 未找到提示音: \(soundName)")
+            }
+        }
     }
     
     private func sendStartLikeNotification(settings: AppSettings, title: String, body: String) async {
