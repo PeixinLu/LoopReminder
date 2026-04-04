@@ -4,23 +4,6 @@ import LaunchAtLogin
 struct BasicSettingsView: View {
     @EnvironmentObject private var settings: AppSettings
 
-    @State private var restInputValue: String = ""
-    @State private var restSelectedUnit: TimeUnit = .minutes
-
-    enum TimeUnit: String, CaseIterable {
-        case seconds = "秒"
-        case minutes = "分钟"
-
-        var multiplier: Double {
-            switch self {
-            case .seconds:
-                return 1
-            case .minutes:
-                return 60
-            }
-        }
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
             // 页面标题 - 固定
@@ -34,87 +17,13 @@ struct BasicSettingsView: View {
             // 内容区域 - 可滚动
             ScrollView {
                 VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-                    // 1. 休息一下
-                    restSection
-
-                    // 2. 启动设置
+                    // 启动设置
                     launchSettingsSection
-
-                    // 3. 通知方式
-                    notificationModeSection
                 }
                 .padding(.bottom, DesignTokens.Spacing.xl)
                 .padding(.trailing, DesignTokens.Spacing.xl)
             }
         }
-        .onAppear(perform: initializeRestInputValue)
-    }
-
-    // MARK: - Rest Section
-
-    private var restSection: some View {
-        SettingsSection(title: nil) {
-            VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
-                // Section 标题 + Toggle
-                HStack {
-                    Text("休息一下")
-                        .font(DesignTokens.Typography.sectionTitle)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Toggle("", isOn: $settings.isRestEnabled)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .disabled(settings.isRunning)
-                }
-
-                if settings.isRestEnabled {
-                    SettingRow(icon: "timer", iconColor: .purple, title: "休息时长") {
-                        HStack(spacing: DesignTokens.Spacing.md) {
-                            TextField("输入时长", text: $restInputValue, onEditingChanged: { isEditing in
-                                if !isEditing {
-                                    validateAndUpdateRestInterval()
-                                }
-                            })
-                            .textFieldStyle(.roundedBorder)
-                            .frame(width: DesignTokens.Layout.inputFieldWidth)
-                            .disabled(settings.isRunning)
-
-                            Picker("", selection: $restSelectedUnit) {
-                                ForEach(TimeUnit.allCases, id: \.self) { unit in
-                                    Text(unit.rawValue).tag(unit)
-                                }
-                            }
-                            .pickerStyle(.segmented)
-                            .frame(width: DesignTokens.Layout.pickerWidth)
-                            .disabled(settings.isRunning)
-                            .onChange(of: restSelectedUnit) { _, _ in
-                                validateAndUpdateRestInterval()
-                            }
-
-                            Text(settings.formattedRestInterval())
-                                .font(DesignTokens.Typography.value)
-                                .fontWeight(.semibold)
-                                .foregroundStyle(.purple)
-                                .frame(minWidth: 80, alignment: .trailing)
-                        }
-                    }
-                    
-                    if let validationMessage = getRestIntervalValidationMessage() {
-                        ValidationHint(
-                            text: validationMessage.text,
-                            isWarning: validationMessage.isWarning
-                        )
-                    }
-                }
-
-                InfoHint("手动关闭通知时触发休息，休息时间内计时器暂停，休息完毕后继续计时", color: .purple)
-
-                if settings.isRunning {
-                    LockHint("请先暂停才能修改")
-                }
-            }
-        }
-        .runningStateStyle(isRunning: settings.isRunning)
     }
 
     // MARK: - Launch Settings Section
@@ -276,74 +185,6 @@ struct BasicSettingsView: View {
         if let url = url {
             NSWorkspace.shared.open(url)
         }
-    }
-
-    private func initializeRestInputValue() {
-        let seconds = settings.restSeconds
-        if seconds >= 60 && Int(seconds) % 60 == 0 {
-            restSelectedUnit = .minutes
-            restInputValue = String(Int(seconds / 60))
-        } else {
-            restSelectedUnit = .seconds
-            restInputValue = String(Int(seconds))
-        }
-    }
-
-    private func validateAndUpdateRestInterval() {
-        guard let value = Double(restInputValue), value > 0 else {
-            // 如果输入无效，恢复为当前设置的值
-            initializeRestInputValue()
-            return
-        }
-
-        var seconds = value * restSelectedUnit.multiplier
-
-        // 限制范围：5秒到7200秒(2小时)
-        if seconds < 5 {
-            seconds = 5
-        }
-        if seconds > 7200 {
-            seconds = 7200
-        }
-
-        settings.restSeconds = seconds
-
-        // 更新输入框以反映修正后的值
-        initializeRestInputValue()
-    }
-
-    // MARK: - Validation Message
-
-    private struct ValidationMessage {
-        let text: String
-        let isWarning: Bool
-    }
-
-    private func getRestIntervalValidationMessage() -> ValidationMessage? {
-        guard let value = Double(restInputValue), value > 0 else {
-            return nil
-        }
-
-        let seconds = value * restSelectedUnit.multiplier
-
-        if seconds < 5 {
-            return ValidationMessage(
-                text: "⚠ 低于最小值 5 秒，已自动调整为 5 秒",
-                isWarning: true
-            )
-        } else if seconds > 7200 {
-            return ValidationMessage(
-                text: "⚠ 超过最大值 2 小时，已自动调整为 2 小时",
-                isWarning: true
-            )
-        } else if seconds >= 60 && seconds <= 900 {
-            return ValidationMessage(
-                text: "✓ 休息时间合理",
-                isWarning: false
-            )
-        }
-
-        return nil
     }
 }
 

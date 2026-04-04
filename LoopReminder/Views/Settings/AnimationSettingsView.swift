@@ -14,42 +14,24 @@ struct AnimationSettingsView: View {
             )
             
             // 内容区域
-            if settings.notificationMode == .overlay {
-                ScrollView {
-                    VStack(spacing: DesignTokens.Spacing.md) {
-                        // 屏幕选择
-                        screenSelectionSection
-                        
-                        Divider().padding(.vertical, DesignTokens.Spacing.xs)
-                        
-                        // 位置和动画
-                        positionSection
-                        animationTypeSection
-                        
-                        Divider().padding(.vertical, DesignTokens.Spacing.xs)
-                        
-                        // 渐透明设置
-                        fadeOutToggleSection
-                        
-                        if settings.overlayEnableFadeOut {
-                            fadeOutDelaySection
-                            fadeOutDurationSection
-                        }
-                    }
-                    .padding(.bottom, DesignTokens.Spacing.xl)
-                    .padding(.trailing, DesignTokens.Spacing.lg)
+            ScrollView {
+                VStack(spacing: DesignTokens.Spacing.md) {
+                    // 屏幕选择
+                    screenSelectionSection
+
+                    Divider().padding(.vertical, DesignTokens.Spacing.xs)
+
+                    // 位置和动画
+                    positionSection
+                    edgePaddingSection
+                    animationTypeSection
                 }
-                
-                if settings.isRunning {
-                    LockCard(message: "请先暂停才能修改动画设置")
-                }
-            } else {
-                // 系统通知模式提示
-                EmptyStateView(
-                    icon: "bell.badge.fill",
-                    title: "仅在屏幕遮罩模式下可用",
-                    subtitle: "请在基本设置中将通知方式改为屏幕遮罩"
-                )
+                .padding(.bottom, DesignTokens.Spacing.xl)
+                .padding(.trailing, DesignTokens.Spacing.lg)
+            }
+
+            if settings.isRunning {
+                LockCard(message: "请先暂停才能修改动画设置")
             }
         }
     }
@@ -98,7 +80,20 @@ struct AnimationSettingsView: View {
             .frame(width: 200)
         }
     }
-    
+
+    private var edgePaddingSection: some View {
+        SettingRow(icon: "arrow.up.to.line.square.fill", iconColor: .teal, title: "屏幕边缘距离") {
+            SliderControl(
+                value: $settings.overlayEdgePadding,
+                range: 0...100,
+                step: 5,
+                format: "%.0f",
+                color: .teal,
+                disabled: settings.isRunning
+            )
+        }
+    }
+
     private var fadeOutToggleSection: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
             SettingRow(icon: "eye.slash.fill", iconColor: .purple, title: "我透明了") {

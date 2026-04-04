@@ -123,22 +123,23 @@ struct OverlayNotificationView: View {
                         }
                         .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
                     case .liquidGlass:
-                        // 使用 NSGlassEffectView：兼顾液态玻璃观感与更稳定的实时背板更新
+                        // 使用 SwiftUI 原生 glassEffect modifier
                         if #available(macOS 26.0, *) {
                             ZStack {
                                 if prefersReducedTransparency {
                                     RoundedRectangle(cornerRadius: cornerRadius)
                                         .fill(backgroundColor.opacity(max(0.45, backgroundOpacity * 0.7) * backgroundOpacityMultiplier))
                                 } else {
-                                    LiquidGlassEffectView(
-                                        cornerRadius: cornerRadius,
-                                        style: liquidGlassStyle,
-                                        tintColor: liquidGlassTintColor(
-                                            multiplier: backgroundOpacityMultiplier,
-                                            prefersHighContrast: prefersHighContrast
-                                        )
-                                    )
-                                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+                                    // 使用原生 SwiftUI glassEffect
+                                    let glass = (liquidGlassStyle == .clear ? Glass.clear : Glass.regular)
+
+                                    RoundedRectangle(cornerRadius: cornerRadius)
+                                        .fill(.clear)
+                                        .glassEffect(glass, in: RoundedRectangle(cornerRadius: cornerRadius))
+
+                                    // 在玻璃效果上叠加颜色层来实现着色
+                                    RoundedRectangle(cornerRadius: cornerRadius)
+                                        .fill(backgroundColor.opacity(backgroundOpacity * 0.35 * backgroundOpacityMultiplier))
                                 }
 
                                 RoundedRectangle(cornerRadius: cornerRadius)
@@ -388,19 +389,6 @@ struct OverlayNotificationView: View {
         let bestMatch = appearance.bestMatch(from: [.darkAqua, .aqua])
         return bestMatch == .darkAqua
     }
-
-    @available(macOS 26.0, *)
-    private func liquidGlassTintColor(multiplier: Double, prefersHighContrast: Bool) -> NSColor? {
-        let components = backgroundColor.components()
-        let contrastBoost = prefersHighContrast ? 1.2 : 1.0
-        let alpha = max(0, min(1, backgroundOpacity * 0.18 * multiplier * contrastBoost))
-        return NSColor(
-            calibratedRed: components.red,
-            green: components.green,
-            blue: components.blue,
-            alpha: alpha
-        )
-    }
 }
 
 // MARK: - Visual Effect Blur
@@ -420,38 +408,5 @@ struct VisualEffectBlur: NSViewRepresentable {
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
         nsView.material = material
         nsView.blendingMode = blendingMode
-    }
-}
-
-@available(macOS 26.0, *)
-private struct LiquidGlassEffectView: NSViewRepresentable {
-    let cornerRadius: Double
-    let style: AppSettings.LiquidGlassStyle
-    let tintColor: NSColor?
-
-    func makeNSView(context: Context) -> NSGlassEffectView {
-        let view = NSGlassEffectView()
-        view.cornerRadius = cornerRadius
-        view.style = style.nsStyle
-        view.tintColor = tintColor
-        return view
-    }
-
-    func updateNSView(_ nsView: NSGlassEffectView, context: Context) {
-        nsView.cornerRadius = cornerRadius
-        nsView.style = style.nsStyle
-        nsView.tintColor = tintColor
-    }
-}
-
-@available(macOS 26.0, *)
-private extension AppSettings.LiquidGlassStyle {
-    var nsStyle: NSGlassEffectView.Style {
-        switch self {
-        case .clear:
-            return .clear
-        case .regular:
-            return .regular
-        }
     }
 }

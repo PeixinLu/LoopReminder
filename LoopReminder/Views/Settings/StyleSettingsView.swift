@@ -14,52 +14,42 @@ struct StyleSettingsView: View {
             )
             
             // 内容区域
-            if settings.notificationMode == .overlay {
-                ScrollView {
-                    VStack(spacing: DesignTokens.Spacing.md) {
-                        // 材质设置
-                        materialSection
+            ScrollView {
+                VStack(spacing: DesignTokens.Spacing.md) {
+                    // 材质设置
+                    materialSection
 
-                        Divider().padding(.vertical, DesignTokens.Spacing.xs)
+                    Divider().padding(.vertical, DesignTokens.Spacing.xs)
 
-                        // 颜色设置
-                        colorSection
-                        opacitySection
+                    // 颜色设置
+                    colorSection
+                    opacitySection
 
-                        Divider().padding(.vertical, DesignTokens.Spacing.xs)
+                    Divider().padding(.vertical, DesignTokens.Spacing.xs)
 
-                        // 尺寸设置
-                        widthSection
-                        heightSection
+                    // 尺寸设置
+                    widthSection
+                    heightSection
 
-                        Divider().padding(.vertical, DesignTokens.Spacing.xs)
+                    Divider().padding(.vertical, DesignTokens.Spacing.xs)
 
-                        // 外观设置
-                        cornerRadiusSection
-                        edgePaddingSection
-                        contentSpacingSection
+                    // 外观设置
+                    cornerRadiusSection
+                    contentSpacingSection
 
-                        Divider().padding(.vertical, DesignTokens.Spacing.xs)
+                    Divider().padding(.vertical, DesignTokens.Spacing.xs)
 
-                        // 字体设置
-                        titleFontSizeSection
-                        bodyFontSizeSection
-                        iconSizeSection
-                    }
-                    .padding(.bottom, DesignTokens.Spacing.xl)
-                    .padding(.trailing, DesignTokens.Spacing.lg)
+                    // 字体设置
+                    titleFontSizeSection
+                    bodyFontSizeSection
+                    iconSizeSection
                 }
-                
-                if settings.isRunning {
-                    LockCard(message: "请先暂停才能修改样式设置")
-                }
-            } else {
-                // 系统通知模式提示
-                EmptyStateView(
-                    icon: "bell.badge.fill",
-                    title: "仅在屏幕遮罩模式下可用",
-                    subtitle: "请在基本设置中将通知方式改为屏幕遮罩"
-                )
+                .padding(.bottom, DesignTokens.Spacing.xl)
+                .padding(.trailing, DesignTokens.Spacing.lg)
+            }
+
+            if settings.isRunning {
+                LockCard(message: "请先暂停才能修改样式设置")
             }
         }
     }
@@ -93,7 +83,7 @@ struct StyleSettingsView: View {
         SettingRow(icon: "circle.lefthalf.filled", iconColor: .orange, title: "不透明度") {
             SliderControl(
                 value: $settings.overlayOpacity,
-                range: 0.3...1.0,
+                range: 0.1...1.0,
                 step: 0.05,
                 format: "%.0f",
                 unit: "%",
@@ -142,20 +132,7 @@ struct StyleSettingsView: View {
             )
         }
     }
-    
-    private var edgePaddingSection: some View {
-        SettingRow(icon: "arrow.up.to.line.square.fill", iconColor: .teal, title: "屏幕边缘距离") {
-            SliderControl(
-                value: $settings.overlayEdgePadding,
-                range: 0...100,
-                step: 5,
-                format: "%.0f",
-                color: .teal,
-                disabled: settings.isRunning
-            )
-        }
-    }
-    
+
     private var contentSpacingSection: some View {
         SettingRow(icon: "arrow.left.and.right.square", iconColor: .cyan, title: "图标与内容间距") {
             SliderControl(

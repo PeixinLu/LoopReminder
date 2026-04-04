@@ -64,6 +64,7 @@ struct TimerItem: Identifiable, Codable {
         var customB: Double?
         
         enum ColorType: String, Codable, CaseIterable {
+            case white = "白色"
             case black = "黑色"
             case blue = "蓝色"
             case purple = "紫色"
@@ -76,6 +77,7 @@ struct TimerItem: Identifiable, Codable {
         
         func toColor() -> Color {
             switch colorType {
+            case .white: return .white
             case .black: return .black
             case .blue: return .blue
             case .purple: return .purple
@@ -93,6 +95,8 @@ struct TimerItem: Identifiable, Codable {
         
         static func from(appSettingsColor: AppSettings.OverlayColor, customColor: Color? = nil) -> TimerColor {
             switch appSettingsColor {
+            case .white:
+                return TimerColor(colorType: .white)
             case .black:
                 return TimerColor(colorType: .black)
             case .blue:

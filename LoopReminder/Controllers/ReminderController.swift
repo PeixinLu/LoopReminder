@@ -905,8 +905,8 @@ final class ReminderController: ObservableObject {
                             w?.close()
                         })
                         
-                        // 只有用户手动关闭通知时才触发休息机制
-                        if triggerRestOnDismiss && isUserDismiss && timer.isRestEnabled {
+                        // 只有循环提醒类型且用户手动关闭通知时才触发休息机制
+                        if triggerRestOnDismiss && isUserDismiss && timer.reminderType == .interval && timer.isRestEnabled {
                             // 停止当前计时器的定时器
                             if let t = self.timers[timerID] {
                                 t.invalidate()

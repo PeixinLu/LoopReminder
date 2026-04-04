@@ -4,11 +4,8 @@ import Combine
 struct PreviewSectionView: View {
     @EnvironmentObject private var settings: AppSettings
     @EnvironmentObject private var controller: ReminderController
-    
+
     @Binding var sendingTest: Bool
-    @Binding var countdownText: String
-    @Binding var progressValue: Double
-    @Binding var isResting: Bool
     var showTimerList: Bool = false // 是否显示计时器列表
     var onNavigateToTimers: (() -> Void)? = nil // 跳转到计时器页面
 
@@ -48,7 +45,7 @@ struct PreviewSectionView: View {
             HStack(spacing: DesignTokens.Spacing.sm) {
                 Image(systemName: "timer.circle.fill")
                     .foregroundStyle(.blue)
-                Text("实时预览")
+                Text("通知效果预览")
                     .font(.headline)
                 Spacer()
             }
@@ -113,7 +110,7 @@ struct PreviewSectionView: View {
             HStack(spacing: DesignTokens.Spacing.sm) {
                 Image(systemName: "eye.fill")
                     .foregroundStyle(.blue)
-                Text("实时预览")
+                Text("通知效果预览")
                     .font(.headline)
             }
             
@@ -225,7 +222,7 @@ struct PreviewSectionView: View {
                     Image(systemName: "paperplane.fill")
                         .font(.caption)
                 }
-                Text(sendingTest ? "发送中..." : "发送测试通知")
+                Text(sendingTest ? "发送中..." : "测试通知效果")
                     .font(.callout)
             }
             .frame(maxWidth: .infinity)
@@ -246,7 +243,7 @@ struct PreviewSectionView: View {
         }
         return settings.timers.first
     }
-    
+
     private func toggleTimer(_ timer: TimerItem) {
         // 删除旧的 toggle 逻辑，不再需要
     }
@@ -296,19 +293,10 @@ struct TimerListItemView: View {
                         Text(timer.displayName)
                             .font(.callout)
                             .lineLimit(1)
-                        // 显示关键信息
-                        HStack(spacing: 4) {
-                            Text(timer.formattedInterval())
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Text("•")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                            Text(timer.title.isEmpty ? timer.body : timer.title)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
+                        // 显示时间信息
+                        Text(formattedSchedule(for: timer))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 
@@ -316,13 +304,13 @@ struct TimerListItemView: View {
                 
                 // 休息和自定义颜色标记
                 HStack(spacing: DesignTokens.Spacing.xs) {
-                    if timer.isRestEnabled {
+                    if timer.reminderType == .interval && timer.isRestEnabled {
                         Image(systemName: "pause.circle.fill")
                             .font(.caption)
                             .foregroundStyle(.purple)
                             .help("休息 \(timer.formattedRestInterval())")
                     }
-                    
+
                     if timer.customColor != nil {
                         Circle()
                             .fill(timer.customColor?.toColor() ?? .gray)
@@ -382,7 +370,7 @@ struct TimerListItemView: View {
         }
         .background(
             RoundedRectangle(cornerRadius: DesignTokens.Layout.cornerRadiusSmall)
-                .fill(isFocused ? Color.blue.opacity(0.1) : Color.clear)
+                .fill(isFocused ? Color.blue.opacity(0.1) : Color(nsColor: .controlBackgroundColor).opacity(0.5))
         )
         .overlay(
             RoundedRectangle(cornerRadius: DesignTokens.Layout.cornerRadiusSmall)
@@ -436,6 +424,25 @@ struct TimerListItemView: View {
             countdownText = String(format: "下次通知：%d:%02d", minutes, secs)
         } else {
             countdownText = String(format: "下次通知：%d秒", secs)
+        }
+    }
+
+    /// 格式化提醒计划显示文本
+    private func formattedSchedule(for timer: TimerItem) -> String {
+        if timer.reminderType == .interval {
+            return "[循环] " + timer.formattedInterval()
+        } else {
+            // 定点提醒
+            let enabledTimes = timer.scheduledTimes.filter { $0.enabled }
+            if enabledTimes.isEmpty {
+                return "[定点] 无启用的提醒时间"
+            } else if enabledTimes.count == 1 {
+                let time = enabledTimes[0]
+                return String(format: "[定点] 每天 %02d:%02d", time.hour, time.minute)
+            } else {
+                let firstTime = enabledTimes[0]
+                return String(format: "[定点] 每天 %02d:%02d 等%d个时间点", firstTime.hour, firstTime.minute, enabledTimes.count)
+            }
         }
     }
 }

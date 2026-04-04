@@ -216,6 +216,7 @@ final class AppSettings: ObservableObject {
     }
 
     enum OverlayColor: String, CaseIterable {
+        case white = "白色"
         case black = "黑色"
         case blue = "蓝色"
         case purple = "紫色"
@@ -258,7 +259,7 @@ final class AppSettings: ObservableObject {
         self.lastFireEpoch = defaults.object(forKey: Keys.lastFire) as? Double ?? 0
 
         let modeRawValue = defaults.string(forKey: Keys.notificationMode) ?? config.notificationMode
-        self.notificationMode = NotificationMode(rawValue: modeRawValue) ?? .overlay
+        self.notificationMode = .overlay  // 强制使用屏幕遮罩，忽略用户设置
 
         // Load - 休息一下
         self.isRestEnabled = defaults.object(forKey: Keys.isRestEnabled) as? Bool ?? config.rest.enabled
@@ -273,7 +274,7 @@ final class AppSettings: ObservableObject {
 
         self.overlayOpacity = defaults.object(forKey: Keys.overlayOpacity) as? Double ?? config.overlay.opacity
         self.overlayStayDuration = defaults.object(forKey: Keys.overlayStayDuration) as? Double ?? config.overlay.stayDuration
-        self.overlayEnableFadeOut = defaults.object(forKey: Keys.overlayEnableFadeOut) as? Bool ?? config.overlay.enableFadeOut
+        self.overlayEnableFadeOut = false  // 强制关闭，忽略用户设置
         self.overlayFadeOutDelay = defaults.object(forKey: Keys.overlayFadeOutDelay) as? Double ?? config.overlay.fadeOutDelay
         self.overlayFadeOutDuration = defaults.object(forKey: Keys.overlayFadeOutDuration) as? Double ?? config.overlay.fadeOutDuration
 
@@ -409,7 +410,7 @@ final class AppSettings: ObservableObject {
         if intervalSeconds > config.interval.max { intervalSeconds = config.interval.max }
         if restSeconds < config.interval.min { restSeconds = config.interval.min }
         if restSeconds > config.interval.max { restSeconds = config.interval.max }
-        if overlayOpacity < 0.3 { overlayOpacity = 0.3 }
+        if overlayOpacity < 0.1 { overlayOpacity = 0.1 }
         if overlayOpacity > 1.0 { overlayOpacity = 1.0 }
 
         validateTimingSettings()
@@ -502,6 +503,7 @@ final class AppSettings: ObservableObject {
 
     func getOverlayColor() -> Color {
         switch overlayColor {
+        case .white: return .white
         case .black: return .black
         case .blue: return .blue
         case .purple: return .purple

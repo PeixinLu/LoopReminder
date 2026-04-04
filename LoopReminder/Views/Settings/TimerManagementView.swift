@@ -74,9 +74,24 @@ struct TimerManagementView: View {
                                     }
                                 ),
                                 isFocused: settings.focusedTimerID == timer.id,
-                                isRunning: settings.isRunning,
+                                isRunning: timer.isRunning,
                                 onFocus: {
-                                    settings.focusedTimerID = timer.id
+                                    if settings.focusedTimerID == timer.id {
+                                        // 已获得焦点，切换展开状态
+                                        withAnimation(.spring(response: 0.3)) {
+                                            if expandedTimerID == timer.id {
+                                                expandedTimerID = nil
+                                            } else {
+                                                expandedTimerID = timer.id
+                                            }
+                                        }
+                                    } else {
+                                        // 未获得焦点，设置焦点并展开
+                                        settings.focusedTimerID = timer.id
+                                        withAnimation(.spring(response: 0.3)) {
+                                            expandedTimerID = timer.id
+                                        }
+                                    }
                                 },
                                 onDelete: {
                                     deleteTimer(timer)
@@ -123,15 +138,19 @@ struct TimerManagementView: View {
     
     private var stayDurationSection: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-            SettingRow(icon: "timer", iconColor: .orange, title: "停留时间") {
+            SettingRow(icon: "timer", iconColor: .orange, title: "通知停留时间") {
                 let maxStayDuration = max(1.0, settings.intervalSeconds - 1.0)
                 HStack(spacing: DesignTokens.Spacing.sm) {
-                    Slider(value: $settings.overlayStayDuration, in: 1...min(60, maxStayDuration), step: 0.5)
-                        .disabled(settings.isRunning)
-                        .frame(width: DesignTokens.Layout.sliderWidth)
-                        .onChange(of: settings.overlayStayDuration) { _, _ in
-                            settings.validateTimingSettings()
-                        }
+                    ContinuousSlider(
+                        value: $settings.overlayStayDuration,
+                        range: 1...min(60, maxStayDuration),
+                        step: 0.5,
+                        disabled: false
+                    )
+                    .frame(width: DesignTokens.Layout.sliderWidth)
+                    .onChange(of: settings.overlayStayDuration) { _, _ in
+                        settings.validateTimingSettings()
+                    }
                     Text(String(format: "%.1f秒", settings.overlayStayDuration))
                         .font(DesignTokens.Typography.value)
                         .fontWeight(.medium)
@@ -139,7 +158,7 @@ struct TimerManagementView: View {
                         .frame(width: DesignTokens.Layout.valueDisplayWidth, alignment: .trailing)
                 }
             }
-            
+
             InfoHint("通知显示后停留的时间，最大为下次通知时间-过渡动画时间", color: .orange)
         }
     }
@@ -372,19 +391,10 @@ struct TimerItemCard: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(timer.displayName)
                             .font(.headline)
-                        // 显示关键信息：频率和内容
-                        HStack(spacing: 4) {
-                            Text(timer.formattedInterval())
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text("•")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Text(timer.title.isEmpty ? timer.body : timer.title)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
+                        // 显示关键信息：频率
+                        Text(formattedReminderSchedule)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 
@@ -392,13 +402,13 @@ struct TimerItemCard: View {
                 
                 // 休息和自定义颜色标记
                 HStack(spacing: DesignTokens.Spacing.xs) {
-                    if timer.isRestEnabled {
+                    if timer.reminderType == .interval && timer.isRestEnabled {
                         Image(systemName: "pause.circle.fill")
                             .font(.caption)
                             .foregroundStyle(.purple)
                             .help("休息 \(timer.formattedRestInterval())")
                     }
-                    
+
                     if timer.customColor != nil {
                         Circle()
                             .fill(timer.customColor?.toColor() ?? .gray)
@@ -505,6 +515,25 @@ struct TimerItemCard: View {
     private var isTimerRunning: Bool {
         timer.isRunning
     }
+
+    /// 格式化提醒计划显示文本
+    private var formattedReminderSchedule: String {
+        if timer.reminderType == .interval {
+            return "[循环] " + timer.formattedInterval()
+        } else {
+            // 定点提醒
+            let enabledTimes = timer.scheduledTimes.filter { $0.enabled }
+            if enabledTimes.isEmpty {
+                return "[定点] 无启用的提醒时间"
+            } else if enabledTimes.count == 1 {
+                let time = enabledTimes[0]
+                return String(format: "[定点] 每天 %02d:%02d", time.hour, time.minute)
+            } else {
+                let firstTime = enabledTimes[0]
+                return String(format: "[定点] 每天 %02d:%02d 等%d个时间点", firstTime.hour, firstTime.minute, enabledTimes.count)
+            }
+        }
+    }
     
     // MARK: - Expanded View
 
@@ -563,20 +592,16 @@ struct TimerItemCard: View {
                 }
 
                 // 提醒类型选择
-                HStack {
-                    Text("提醒类型")
-                        .font(DesignTokens.Typography.sectionTitle)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-
-                Picker("", selection: $timer.reminderType) {
-                    ForEach(ReminderType.allCases, id: \.self) { type in
-                        Text(type.rawValue).tag(type)
+                SettingRow(icon: "clock.fill", iconColor: .blue, title: "提醒类型") {
+                    Picker("", selection: $timer.reminderType) {
+                        ForEach(ReminderType.allCases, id: \.self) { type in
+                            Text(type.rawValue).tag(type)
+                        }
                     }
+                    .pickerStyle(.segmented)
+                    .disabled(timer.isRunning)
+                    .frame(width: 150)
                 }
-                .pickerStyle(.segmented)
-                .disabled(timer.isRunning)
 
                 if timer.reminderType == .interval {
                     InfoHint("按照设定的时间间隔循环提醒", color: .blue)
@@ -648,78 +673,80 @@ struct TimerItemCard: View {
                 if timer.reminderType == .scheduled {
                     scheduledTimesSection
                 }
-                
-                // 休息一下
-                HStack {
-                    Text("休息一下")
-                        .font(DesignTokens.Typography.sectionTitle)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Toggle("", isOn: $timer.isRestEnabled)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                        .disabled(timer.isRunning)
-                }
-                
-                if timer.isRestEnabled {
-                    SettingRow(icon: "pause.circle.fill", iconColor: .purple, title: "时长", labelWidth: 70) {
-                        VStack(alignment: .trailing, spacing: 6) {
-                            HStack(spacing: 6) {
-                                TextField("时长", text: $restInputValue, onEditingChanged: { isEditing in
-                                    isRestFocused = isEditing
-                                    if !isEditing {
+
+                // 休息一下（仅循环提醒）
+                if timer.reminderType == .interval {
+                    HStack {
+                        Text("休息一下")
+                            .font(DesignTokens.Typography.sectionTitle)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Toggle("", isOn: $timer.isRestEnabled)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .disabled(timer.isRunning)
+                    }
+
+                    if timer.isRestEnabled {
+                        SettingRow(icon: "pause.circle.fill", iconColor: .purple, title: "时长", labelWidth: 70) {
+                            VStack(alignment: .trailing, spacing: 6) {
+                                HStack(spacing: 6) {
+                                    TextField("时长", text: $restInputValue, onEditingChanged: { isEditing in
+                                        isRestFocused = isEditing
+                                        if !isEditing {
+                                            saveRestIntervalIfNeeded()
+                                        }
+                                    })
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(width: 50)
+                                    .disabled(timer.isRunning)
+                                    .focused(focusedField, equals: .timerRest(timer.id))
+                                    .onSubmit {
                                         saveRestIntervalIfNeeded()
                                     }
-                                })
-                                .textFieldStyle(.roundedBorder)
-                                .frame(width: 50)
-                                .disabled(timer.isRunning)
-                                .focused(focusedField, equals: .timerRest(timer.id))
-                                .onSubmit {
-                                    saveRestIntervalIfNeeded()
-                                }
-                                .onChange(of: restInputValue) { _, newValue in
-                                    let filtered = newValue.filter { "0123456789.".contains($0) }
-                                    if filtered != newValue {
-                                        restInputValue = filtered
-                                    } else {
-                                        // 标记有修改，需要保存
-                                        needsSave = true
-                                        // 实时验证
+                                    .onChange(of: restInputValue) { _, newValue in
+                                        let filtered = newValue.filter { "0123456789.".contains($0) }
+                                        if filtered != newValue {
+                                            restInputValue = filtered
+                                        } else {
+                                            // 标记有修改，需要保存
+                                            needsSave = true
+                                            // 实时验证
+                                            updateRestValidation()
+                                        }
+                                    }
+
+                                    Picker("", selection: $restSelectedUnit) {
+                                        ForEach(TimeUnit.allCases, id: \.self) { unit in
+                                            Text(unit.rawValue).tag(unit)
+                                        }
+                                    }
+                                    .pickerStyle(.segmented)
+                                    .frame(width: 100)
+                                    .disabled(timer.isRunning)
+                                    .onChange(of: restSelectedUnit) { _, _ in
                                         updateRestValidation()
+                                        saveRestIntervalIfNeeded()
                                     }
                                 }
-                                
-                                Picker("", selection: $restSelectedUnit) {
-                                    ForEach(TimeUnit.allCases, id: \.self) { unit in
-                                        Text(unit.rawValue).tag(unit)
-                                    }
+
+                                // 显示格式化后的时间
+                                Text(timer.formattedRestInterval())
+                                    .font(.caption)
+                                    .fontWeight(.medium)
+                                    .foregroundStyle(.purple)
+
+                                // 显示验证消息
+                                if let message = restValidationMessage {
+                                    Text(message)
+                                        .font(.caption2)
+                                        .foregroundStyle(.orange)
                                 }
-                                .pickerStyle(.segmented)
-                                .frame(width: 100)
-                                .disabled(timer.isRunning)
-                                .onChange(of: restSelectedUnit) { _, _ in
-                                    updateRestValidation()
-                                    saveRestIntervalIfNeeded()
-                                }
-                            }
-                            
-                            // 显示格式化后的时间
-                            Text(timer.formattedRestInterval())
-                                .font(.caption)
-                                .fontWeight(.medium)
-                                .foregroundStyle(.purple)
-                            
-                            // 显示验证消息
-                            if let message = restValidationMessage {
-                                Text(message)
-                                    .font(.caption2)
-                                    .foregroundStyle(.orange)
                             }
                         }
                     }
                 }
-                
+
                 // 颜色配置
                 colorConfigSection
 
@@ -804,7 +831,7 @@ struct TimerItemCard: View {
                                     }
                                 }
                                 .onHover { isHovering in
-                                    if isHovering && !settings.isRunning {
+                                    if isHovering && !timer.isRunning {
                                         NSSound(named: NSSound.Name(sound.rawValue))?.play()
                                     }
                                 }
@@ -860,7 +887,7 @@ struct TimerItemCard: View {
     private var colorConfigSection: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
             HStack {
-                Text("通知颜色")
+                Text("自定义通知颜色")
                     .font(DesignTokens.Typography.sectionTitle)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -935,8 +962,8 @@ struct TimerItemCard: View {
 
             // 时间点列表
             ForEach(timer.scheduledTimes) { time in
-                HStack(spacing: DesignTokens.Spacing.sm) {
-                    // 启用开关
+                HStack(spacing: DesignTokens.Spacing.md) {
+                    // 启用开关（缩小）
                     Toggle("", isOn: Binding(
                         get: { time.enabled },
                         set: { newValue in
@@ -947,6 +974,7 @@ struct TimerItemCard: View {
                     ))
                     .labelsHidden()
                     .toggleStyle(.switch)
+                    .scaleEffect(0.75)
                     .disabled(timer.isRunning)
 
                     // 时间选择器
@@ -962,7 +990,7 @@ struct TimerItemCard: View {
                             }
                         }
                     ), displayedComponents: .hourAndMinute)
-                    .datePickerStyle(.compact)
+                    .datePickerStyle(.stepperField)
                     .disabled(timer.isRunning)
 
                     Spacer()
@@ -1192,32 +1220,102 @@ struct TimerItemCard: View {
             progressValue = 0.0
             return
         }
-        
+
+        if timer.reminderType == .scheduled {
+            // 定点提醒：显示下一个时间点
+            updateScheduledCountdown()
+        } else {
+            // 间隔提醒：显示倒计时
+            updateIntervalCountdown()
+        }
+    }
+
+    private func updateIntervalCountdown() {
         let now = Date()
         let lastFire = timer.lastFireDate ?? now
         let nextFire = lastFire.addingTimeInterval(timer.intervalSeconds)
         let remaining = nextFire.timeIntervalSince(now)
-        
+
         if remaining <= 1.0 {
             countdownText = "下次通知：即将发送..."
             progressValue = 1.0
             return
         }
-        
+
         let elapsed = timer.intervalSeconds - remaining
         progressValue = max(0, min(1.0, elapsed / timer.intervalSeconds))
-        
+
         let seconds = Int(remaining)
         let hours = seconds / 3600
         let minutes = (seconds % 3600) / 60
         let secs = seconds % 60
-        
+
         if hours > 0 {
             countdownText = String(format: "下次通知：%d:%02d:%02d", hours, minutes, secs)
         } else if minutes > 0 {
             countdownText = String(format: "下次通知：%d:%02d", minutes, secs)
         } else {
             countdownText = String(format: "下次通知：%d秒", secs)
+        }
+    }
+
+    private func updateScheduledCountdown() {
+        let enabledTimes = timer.scheduledTimes.filter { $0.enabled }
+        guard !enabledTimes.isEmpty else {
+            countdownText = "无启用的提醒时间"
+            progressValue = 0.0
+            return
+        }
+
+        let now = Date()
+        let calendar = Calendar.current
+        let currentHour = calendar.component(.hour, from: now)
+        let currentMinute = calendar.component(.minute, from: now)
+        let currentTotal = currentHour * 60 + currentMinute
+
+        // 找到下一个最近的时间点
+        var nextTime: ScheduledTime?
+        var minDiff = Int.max
+
+        for time in enabledTimes {
+            let timeTotal = time.hour * 60 + time.minute
+            var diff = timeTotal - currentTotal
+
+            // 如果时间已过，计算到明天的差值
+            if diff <= 0 {
+                diff += 24 * 60
+            }
+
+            if diff < minDiff {
+                minDiff = diff
+                nextTime = time
+            }
+        }
+
+        guard let next = nextTime else {
+            countdownText = "无启用的提醒时间"
+            progressValue = 0.0
+            return
+        }
+
+        // 显示下一个时间点
+        let timeString = String(format: "%02d:%02d", next.hour, next.minute)
+
+        if minDiff <= 1 {
+            countdownText = "下次提醒：即将发送..."
+            progressValue = 1.0
+        } else if minDiff < 60 {
+            countdownText = "下次提醒：\(timeString)（\(minDiff)分钟后）"
+            progressValue = 0.0
+        } else {
+            let hoursUntil = minDiff / 60
+            let minsUntil = minDiff % 60
+            if minsUntil == 0 {
+                countdownText = "下次提醒：\(timeString)（\(hoursUntil)小时后）"
+            } else {
+                countdownText = "下次提醒：\(timeString)（\(hoursUntil)小时\(minsUntil)分钟后）"
+            }
+            progressValue = 0.0
         }
     }
 }

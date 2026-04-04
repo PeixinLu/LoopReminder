@@ -1,6 +1,7 @@
 //  统一设计系统 - 管理所有设计常量和可复用组件
 
 import SwiftUI
+import AppKit
 
 // MARK: - Design Tokens
 
@@ -386,7 +387,8 @@ struct SliderControl: View {
     let color: Color
     let disabled: Bool
     let valueMultiplier: Double
-    
+    let showTicks: Bool // 是否显示刻度
+
     init(
         value: Binding<Double>,
         range: ClosedRange<Double>,
@@ -395,7 +397,8 @@ struct SliderControl: View {
         unit: String = "",
         color: Color = .blue,
         disabled: Bool = false,
-        valueMultiplier: Double = 1
+        valueMultiplier: Double = 1,
+        showTicks: Bool = false // 默认隐藏刻度
     ) {
         self._value = value
         self.range = range
@@ -405,19 +408,74 @@ struct SliderControl: View {
         self.color = color
         self.disabled = disabled
         self.valueMultiplier = valueMultiplier
+        self.showTicks = showTicks
     }
-    
+
     var body: some View {
         HStack(spacing: DesignTokens.Spacing.sm) {
-            Slider(value: $value, in: range, step: step)
-                .disabled(disabled)
-                .frame(width: DesignTokens.Layout.sliderWidth)
-            
+            if showTicks {
+                // 显示刻度：使用标准 Slider
+                Slider(value: $value, in: range, step: step)
+                    .disabled(disabled)
+                    .frame(width: DesignTokens.Layout.sliderWidth)
+            } else {
+                // 隐藏刻度：使用自定义 NSSlider
+                ContinuousSlider(value: $value, range: range, step: step, disabled: disabled)
+                    .frame(width: DesignTokens.Layout.sliderWidth)
+            }
+
             Text(String(format: format, value * valueMultiplier) + unit)
                 .font(DesignTokens.Typography.value)
                 .fontWeight(.medium)
                 .foregroundStyle(color)
                 .frame(width: DesignTokens.Layout.valueDisplayWidth, alignment: .trailing)
+        }
+    }
+}
+
+/// 无刻度的连续滑块（macOS）
+struct ContinuousSlider: NSViewRepresentable {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+    let disabled: Bool
+
+    func makeNSView(context: Context) -> NSSlider {
+        let slider = NSSlider()
+        slider.minValue = range.lowerBound
+        slider.maxValue = range.upperBound
+        slider.doubleValue = value
+        slider.target = context.coordinator
+        slider.action = #selector(Coordinator.valueChanged)
+        slider.isEnabled = !disabled
+        slider.allowsTickMarkValuesOnly = false // 关键：不限制只能选择刻度值
+        slider.numberOfTickMarks = 0 // 隐藏刻度
+        return slider
+    }
+
+    func updateNSView(_ nsView: NSSlider, context: Context) {
+        nsView.doubleValue = value
+        nsView.isEnabled = !disabled
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(value: $value, step: step)
+    }
+
+    class Coordinator: NSObject {
+        var value: Binding<Double>
+        let step: Double
+
+        init(value: Binding<Double>, step: Double) {
+            self.value = value
+            self.step = step
+        }
+
+        @objc func valueChanged(_ slider: NSSlider) {
+            // 步进到最近的刻度值
+            let rawValue = slider.doubleValue
+            let steppedValue = round(rawValue / step) * step
+            value.wrappedValue = steppedValue
         }
     }
 }
