@@ -161,6 +161,20 @@ struct BasicSettingsView: View {
                 }
 
                 Divider().opacity(0.5)
+
+                // 启动计时器时显示提示
+                SettingToggleRow(
+                    icon: "bell.badge",
+                    iconColor: .blue,
+                    title: "启动计时器时显示提示",
+                    description: "启动或重置计时器时显示通知提示"
+                ) {
+                    Toggle("", isOn: $settings.showStartNotification)
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                }
+
+                Divider().opacity(0.5)
                 
                 // 锁屏唤醒重计时
                 SettingToggleRow(

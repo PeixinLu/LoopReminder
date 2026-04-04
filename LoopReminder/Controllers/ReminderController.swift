@@ -101,8 +101,10 @@ final class ReminderController: ObservableObject {
         }
 
         // 启动时弹出一次通知
-        Task {
-            await self.sendStartNotification(settings: settings, count: validTimers.count)
+        if settings.showStartNotification {
+            Task {
+                await self.sendStartNotification(settings: settings, count: validTimers.count)
+            }
         }
     }
 
@@ -266,8 +268,10 @@ final class ReminderController: ObservableObject {
         logger.log("启动计时器: \(timer.displayName)")
 
         // 启动单个计时器时也显示通知
-        Task {
-            await self.sendSingleTimerStartNotification(timerName: timer.displayName, settings: settings)
+        if settings.showStartNotification {
+            Task {
+                await self.sendSingleTimerStartNotification(timerName: timer.displayName, settings: settings)
+            }
         }
     }
     
@@ -407,7 +411,7 @@ final class ReminderController: ObservableObject {
         await sendNotification(for: timer, settings: settings, isTest: true, triggerRestOnDismiss: false)
     }
 
-    private func sendNotification(for timer: TimerItem, settings: AppSettings, isTest: Bool = false, content: NotificationContent? = nil, overlayStyle: OverlayStyle? = nil, triggerRestOnDismiss: Bool = true) async {
+    private func sendNotification(for timer: TimerItem, settings: AppSettings, isTest: Bool = false, content: NotificationContent? = nil, overlayStyle: OverlayStyle? = nil, triggerRestOnDismiss: Bool = true, skipSound: Bool = false) async {
         if !isTest {
             // 更新计时器的 lastFireEpoch
             if let index = settings.timers.firstIndex(where: { $0.id == timer.id }) {
@@ -417,10 +421,12 @@ final class ReminderController: ObservableObject {
 
         let payload = content ?? buildContent(timer: timer)
         let style = overlayStyle ?? buildOverlayStyle(timer: timer, settings: settings)
-        logger.log("发送通知: \(payload.title.isEmpty ? "(无标题)" : payload.title) | 模式 \(settings.notificationMode.rawValue)\(isTest ? " [测试]" : "")")
+        logger.log("发送通知: \(payload.title.isEmpty ? "(无标题)" : payload.title) | 模式 \(settings.notificationMode.rawValue)\(isTest ? " [测试]" : "")\(skipSound ? " [静音]" : "")")
 
         // 播放提示音
-        playSound(for: timer)
+        if !skipSound {
+            playSound(for: timer)
+        }
 
         switch settings.notificationMode {
         case .system:
@@ -449,7 +455,7 @@ final class ReminderController: ObservableObject {
     private func sendStartLikeNotification(settings: AppSettings, title: String, body: String) async {
         // 使用第一个计时器来发送启动通知
         guard let firstTimer = settings.timers.first else { return }
-        
+
         let content = NotificationContent(
             emoji: "", // 不使用 emoji，由视图层显示图标
             title: title,
@@ -463,7 +469,8 @@ final class ReminderController: ObservableObject {
             isTest: true,
             content: content,
             overlayStyle: style,
-            triggerRestOnDismiss: false
+            triggerRestOnDismiss: false,
+            skipSound: true // 启动通知不播放声音
         )
     }
     
@@ -636,7 +643,9 @@ final class ReminderController: ObservableObject {
         }
         
         Task {
-            await sendResetNotification(settings: settings)
+            if settings.showStartNotification {
+                await sendResetNotification(settings: settings)
+            }
         }
         logger.log("解锁后重置计时器")
     }
