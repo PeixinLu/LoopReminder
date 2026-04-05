@@ -2,7 +2,10 @@ import SwiftUI
 
 struct AnimationSettingsView: View {
     @EnvironmentObject private var settings: AppSettings
-    
+    @EnvironmentObject private var controller: ReminderController
+
+    @State private var debounceTask: Task<Void, Never>?
+
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
             // 页面标题 - 固定
@@ -12,7 +15,7 @@ struct AnimationSettingsView: View {
                 title: "动画和定位",
                 subtitle: "自定义通知动画和位置"
             )
-            
+
             // 内容区域
             ScrollView {
                 VStack(spacing: DesignTokens.Spacing.md) {
@@ -27,17 +30,56 @@ struct AnimationSettingsView: View {
                     animationTypeSection
                 }
                 .padding(.bottom, DesignTokens.Spacing.xl)
-                .padding(.trailing, DesignTokens.Spacing.lg)
             }
+        }
+        .onChange(of: animationSettingsHash) { _, _ in
+            scheduleTestNotification()
+        }
+        .onDisappear {
+            debounceTask?.cancel()
+        }
+    }
 
-            if settings.isRunning {
-                LockCard(message: "请先暂停才能修改动画设置")
+    // MARK: - Computed Properties
+
+    /// 计算当前动画和定位设置的哈希值，用于检测变化
+    private var animationSettingsHash: Int {
+        var hasher = Hasher()
+        hasher.combine(settings.screenSelection)
+        hasher.combine(settings.overlayPosition)
+        hasher.combine(settings.animationStyle)
+        hasher.combine(settings.overlayEdgePadding)
+        return hasher.finalize()
+    }
+
+    // MARK: - Actions
+
+    private func scheduleTestNotification() {
+        // 取消之前的任务
+        debounceTask?.cancel()
+
+        // 延迟 0.5 秒后发送测试通知（防抖）
+        debounceTask = Task {
+            try? await Task.sleep(nanoseconds: 500_000_000)
+
+            guard !Task.isCancelled else { return }
+
+            // 发送测试通知（自动触发，静音）
+            if let focusedTimer = getFocusedTimer(), focusedTimer.isContentValid() {
+                await controller.sendTest(for: focusedTimer, settings: settings, skipSound: true)
             }
         }
     }
-    
+
+    private func getFocusedTimer() -> TimerItem? {
+        if let focusedID = settings.focusedTimerID {
+            return settings.timers.first { $0.id == focusedID }
+        }
+        return settings.timers.first
+    }
+
     // MARK: - Setting Sections
-    
+
     private var screenSelectionSection: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
             SettingRow(icon: "display.2", iconColor: .indigo, title: "显示屏幕") {
@@ -47,14 +89,13 @@ struct AnimationSettingsView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .disabled(settings.isRunning)
-                .frame(width: 220)
+                .fixedSize()
             }
-            
+
             InfoHint(settings.screenSelection.description, color: .indigo)
         }
     }
-    
+
     private var positionSection: some View {
         SettingRow(icon: "location.fill", iconColor: .blue, title: "位置") {
             Picker("", selection: $settings.overlayPosition) {
@@ -63,11 +104,10 @@ struct AnimationSettingsView: View {
                 }
             }
             .pickerStyle(.menu)
-            .disabled(settings.isRunning)
-            .frame(width: 120)
+            .fixedSize()
         }
     }
-    
+
     private var animationTypeSection: some View {
         SettingRow(icon: "sparkles", iconColor: .pink, title: "动画类型") {
             Picker("", selection: $settings.animationStyle) {
@@ -76,96 +116,19 @@ struct AnimationSettingsView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .disabled(settings.isRunning)
-            .frame(width: 200)
+            .fixedSize()
         }
     }
 
     private var edgePaddingSection: some View {
-        SettingRow(icon: "arrow.up.to.line.square.fill", iconColor: .teal, title: "屏幕边缘距离") {
+        SettingRow(icon: "arrow.up.to.line.square.fill", iconColor: .teal, title: "屏幕边缘距离", fillWidth: true) {
             SliderControl(
                 value: $settings.overlayEdgePadding,
                 range: 0...100,
                 step: 5,
                 format: "%.0f",
-                color: .teal,
-                disabled: settings.isRunning
+                color: .teal
             )
-        }
-    }
-
-    private var fadeOutToggleSection: some View {
-        VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-            SettingRow(icon: "eye.slash.fill", iconColor: .purple, title: "我透明了") {
-                HStack(spacing: DesignTokens.Spacing.xs) {
-                    Text("Beta")
-                        .font(.caption2)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(
-                            Capsule()
-                                .fill(Color.orange)
-                        )
-                    
-                    Spacer()
-                    
-                    Toggle("", isOn: $settings.overlayEnableFadeOut)
-                        .toggleStyle(.switch)
-                        .disabled(settings.isRunning)
-                        .labelsHidden()
-                }
-            }
-            
-            InfoHint("该功能暂不稳定，未经过完整测试，后续可能放弃维护", color: .orange)
-            InfoHint("为减少对内容的干扰，通知弹出后会慢慢变透明，直至下一个通知到来", color: .purple)
-        }
-    }
-    
-    private var fadeOutDelaySection: some View {
-        VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-            SettingRow(icon: "clock.arrow.2.circlepath", iconColor: .cyan, title: "变淡延迟") {
-                let maxFadeOutDelay = max(0.5, settings.overlayStayDuration - settings.overlayFadeOutDuration)
-                HStack(spacing: DesignTokens.Spacing.sm) {
-                    Slider(value: $settings.overlayFadeOutDelay, in: 0...maxFadeOutDelay, step: 0.5)
-                        .disabled(settings.isRunning)
-                        .frame(width: DesignTokens.Layout.sliderWidth)
-                        .onChange(of: settings.overlayFadeOutDelay) { _, _ in
-                            settings.validateTimingSettings()
-                        }
-                    Text(String(format: "%.1f秒", settings.overlayFadeOutDelay))
-                        .font(DesignTokens.Typography.value)
-                        .fontWeight(.medium)
-                        .foregroundStyle(.cyan)
-                        .frame(width: DesignTokens.Layout.valueDisplayWidth, alignment: .trailing)
-                }
-            }
-            
-            InfoHint("停留后多久开始变淡，最大为停留时间-变淡持续时间", color: .cyan)
-        }
-    }
-    
-    private var fadeOutDurationSection: some View {
-        VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-            SettingRow(icon: "clock.badge.checkmark.fill", iconColor: .green, title: "变淡持续") {
-                let maxFadeOutDuration = max(0.5, settings.overlayStayDuration - settings.overlayFadeOutDelay)
-                HStack(spacing: DesignTokens.Spacing.sm) {
-                    Slider(value: $settings.overlayFadeOutDuration, in: 0.5...maxFadeOutDuration, step: 0.5)
-                        .disabled(settings.isRunning)
-                        .frame(width: DesignTokens.Layout.sliderWidth)
-                        .onChange(of: settings.overlayFadeOutDuration) { _, _ in
-                            settings.validateTimingSettings()
-                        }
-                    Text(String(format: "%.1f秒", settings.overlayFadeOutDuration))
-                        .font(DesignTokens.Typography.value)
-                        .fontWeight(.medium)
-                        .foregroundStyle(.green)
-                        .frame(width: DesignTokens.Layout.valueDisplayWidth, alignment: .trailing)
-                }
-            }
-            
-            InfoHint("变淡动画持续时间，最大为停留时间-变淡延迟", color: .green)
         }
     }
 }

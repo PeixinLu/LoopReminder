@@ -1,25 +1,47 @@
 import SwiftUI
 import AppKit
+import Combine
+
+// MARK: - Notification Names
+
+extension Notification.Name {
+    static let openSettingsWindow = Notification.Name("openSettingsWindow")
+}
 
 // App Delegate to handle lifecycle events
 class AppDelegate: NSObject, NSApplicationDelegate {
     var controller: ReminderController?
-    
+    var settings: AppSettings?
+    var openSettingsHandler: (() -> Void)?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // 默认使用 accessory 模式，不在 Dock 显示
         NSApp.setActivationPolicy(.accessory)
+
+        // 监听打开设置窗口的通知
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleOpenSettingsNotification),
+            name: .openSettingsWindow,
+            object: nil
+        )
     }
-    
+
+    @objc private func handleOpenSettingsNotification() {
+        openSettingsHandler?()
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         // 清理定时器和通知
         controller?.cleanup()
+        NotificationCenter.default.removeObserver(self)
     }
-    
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         // 当用户点击 Dock 图标或 Command+Tab 切换时，显示设置窗口
         if !flag {
             // 查找并激活窗口
-            if let window = NSApp.windows.first(where: { $0.title == "配置" || $0.identifier?.rawValue == "settings" }) {
+            if let window = NSApp.windows.first(where: { $0.title == "Loop Reminder" || $0.identifier?.rawValue == "settings" }) {
                 NSApp.setActivationPolicy(.regular)
                 NSApp.activate(ignoringOtherApps: true)
                 window.makeKeyAndOrderFront(nil)
@@ -44,6 +66,9 @@ struct LoopReminderApp: App {
         let _ = Task {
             if !hasLaunched {
                 hasLaunched = true
+                // 设置打开设置窗口的回调
+                appDelegate.openSettingsHandler = openSettingsWindow
+                appDelegate.controller = controller
                 // 等待 scene 初始化完成
                 try? await Task.sleep(nanoseconds: 200_000_000) // 0.2s
                 await MainActor.run {
@@ -59,109 +84,58 @@ struct LoopReminderApp: App {
                 }
             }
         }
-        
+
         return Group {
-        // 菜单栏
-        MenuBarExtra {
-            // 检查是否有任何计时器在运行
-            let hasRunningTimer = settings.timers.contains(where: { $0.isRunning })
-            
-            Button(hasRunningTimer ? "全部停止" : "全部启动") {
-                if hasRunningTimer {
-                    // 停止所有正在运行的计时器
-                    for timer in settings.timers where timer.isRunning {
-                        controller.stopTimer(timer.id, settings: settings)
+            // 菜单栏 - 保持应用运行
+            MenuBarExtra {
+                MenuBarView()
+                    .environmentObject(settings)
+                    .environmentObject(controller)
+            } label: {
+                let hasRunningTimer = settings.timers.contains(where: { $0.isRunning })
+                Image(systemName: hasRunningTimer ? "bell.fill" : "bell")
+                    .font(.system(size: 14))
+            }
+            .menuBarExtraStyle(.window)
+
+            // 配置窗口
+            Window("Loop Reminder", id: "settings") {
+                SettingsView()
+                    .environmentObject(settings)
+                    .environmentObject(controller)
+                    .onAppear {
+                        appDelegate.controller = controller
+                        settingsWindowOpen = true
+                        // 窗口显示时切换到 regular 模式
+                        NSApp.setActivationPolicy(.regular)
+                        NSApp.activate(ignoringOtherApps: true)
                     }
-                    settings.isRunning = false
-                } else {
-                    // 启动所有有效的计时器
-                    settings.isRunning = true
-                    controller.start(settings: settings)
-                }
-            }
-            
-            Divider()
-            
-            // 各个计时器的启停开关
-            if !settings.timers.isEmpty {
-                Section("计时器") {
-                    ForEach(settings.timers) { timer in
-                        Toggle(isOn: Binding(
-                            get: { timer.isRunning },
-                            set: { isOn in
-                                if isOn {
-                                    controller.startTimer(timer.id, settings: settings)
-                                } else {
-                                    controller.stopTimer(timer.id, settings: settings)
-                                }
-                            }
-                        )) {
-                            Text(timer.displayName)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
-                        }
-                        .disabled(!timer.isContentValid())
+                    .onDisappear {
+                        settingsWindowOpen = false
+                        // 切换回 accessory 模式，隐藏 Dock 图标
+                        NSApp.setActivationPolicy(.accessory)
+                        // 发送通知，让所有组件保存修改
+                        NotificationCenter.default.post(name: .settingsWindowWillClose, object: nil)
                     }
-                }
-                
-                Divider()
             }
-
-            Button("设置中心") {
-                openSettingsWindow()
+            .windowResizability(.contentSize)
+            .defaultPosition(.center)
+            .defaultSize(width: 1200, height: 700)
+            .commands {
+                CommandGroup(replacing: .newItem) { }
             }
-            .keyboardShortcut(",", modifiers: .command)
-
-            Divider()
-
-            Button("退出 LoopReminder") {
-                NSApp.terminate(nil)
-            }
-        } label: {
-            // 只要有任何计时器在运行，就使用 fill 图标
-            let hasRunningTimer = settings.timers.contains(where: { $0.isRunning })
-            Image(systemName: hasRunningTimer ? "bell.fill" : "bell")
-                .font(.system(size: 14))
-        }
-        .menuBarExtraStyle(.menu)
-
-        // 配置窗口（使用普通 Window 而非 Settings）
-        Window("配置", id: "settings") {
-            SettingsView()
-                .environmentObject(settings)
-                .environmentObject(controller)
-                .onAppear {
-                    appDelegate.controller = controller
-                    settingsWindowOpen = true
-                    // 窗口显示时切换到 regular 模式
-                    NSApp.setActivationPolicy(.regular)
-                    NSApp.activate(ignoringOtherApps: true)
-                }
-                .onDisappear {
-                    settingsWindowOpen = false
-                    // 切换回 accessory 模式，隐藏 Dock 图标
-                    NSApp.setActivationPolicy(.accessory)
-                    // 发送通知，让所有组件保存修改
-                    NotificationCenter.default.post(name: .settingsWindowWillClose, object: nil)
-                }
-        }
-        .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
-        .defaultPosition(.center)
-        .defaultSize(width: 1200, height: 700)
-        .commands {
-            CommandGroup(replacing: .newItem) { }
         }
     }
-}
-    
+
     // 打开设置窗口
     func openSettingsWindow() {
+        // 先激活应用，这会关闭 MenuBarExtra 的 popover
+        NSApp.activate(ignoringOtherApps: true)
+
         // 先查找是否已有窗口
-        if let existingWindow = NSApp.windows.first(where: { $0.title == "配置" || $0.identifier?.rawValue == "settings" }) {
+        if let existingWindow = NSApp.windows.first(where: { $0.title == "Loop Reminder" || $0.identifier?.rawValue == "settings" }) {
             // 切换到 regular 模式
             NSApp.setActivationPolicy(.regular)
-            NSApp.activate(ignoringOtherApps: true)
             existingWindow.makeKeyAndOrderFront(nil)
             existingWindow.orderFrontRegardless()
         } else {
@@ -172,7 +146,7 @@ struct LoopReminderApp: App {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 NSApp.activate(ignoringOtherApps: true)
                 // 确保窗口置前
-                if let window = NSApp.windows.first(where: { $0.title == "配置" || $0.identifier?.rawValue == "settings" }) {
+                if let window = NSApp.windows.first(where: { $0.title == "Loop Reminder" || $0.identifier?.rawValue == "settings" }) {
                     window.orderFrontRegardless()
                 }
             }

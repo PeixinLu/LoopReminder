@@ -29,9 +29,9 @@ final class ReminderController: ObservableObject {
     private var lastLockDate: Date?
     private let logger = EventLogger.shared
     private struct NotificationContent {
-        let emoji: String
-        let title: String
-        let body: String
+        var emoji: String
+        var title: String
+        var body: String
     }
     
     deinit {
@@ -400,15 +400,19 @@ final class ReminderController: ObservableObject {
         isResting = !restingTimers.isEmpty
     }
 
-    func sendTest(for timer: TimerItem, settings: AppSettings) async {
+    func sendTest(for timer: TimerItem, settings: AppSettings, skipSound: Bool = false) async {
         // 验证内容是否有效
         guard timer.isContentValid() else {
             print("⚠️ 无法发送测试通知：标题、描述和Emoji至少需要有一项不为空")
             return
         }
-        
+
+        // 构建测试通知内容，标记为"测试"
+        var testContent = buildContent(timer: timer)
+        testContent.title = "[测试] " + testContent.title
+
         // 测试通知不影响常规计时
-        await sendNotification(for: timer, settings: settings, isTest: true, triggerRestOnDismiss: false)
+        await sendNotification(for: timer, settings: settings, isTest: true, content: testContent, triggerRestOnDismiss: false, skipSound: skipSound)
     }
 
     private func sendNotification(for timer: TimerItem, settings: AppSettings, isTest: Bool = false, content: NotificationContent? = nil, overlayStyle: OverlayStyle? = nil, triggerRestOnDismiss: Bool = true, skipSound: Bool = false) async {

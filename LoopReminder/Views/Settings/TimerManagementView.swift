@@ -39,19 +39,18 @@ struct TimerManagementView: View {
             )
             
             // 内容区域 - 可滚动
-            GeometryReader { proxy in
-                ScrollView {
-                    VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
-                        // 停留时间设置
-                        stayDurationSection
-                        
-                        Divider().padding(.vertical, DesignTokens.Spacing.xs)
-                        
-                        // 操作按钮组
-                        HStack(spacing: DesignTokens.Spacing.sm) {
-                            startStopAllButton
-                            addTimerButton
-                        }
+            ScrollView {
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
+                    // 停留时间设置
+                    stayDurationSection
+
+                    Divider().padding(.vertical, DesignTokens.Spacing.xs)
+
+                    // 操作按钮组
+                    HStack(spacing: DesignTokens.Spacing.sm) {
+                        startStopAllButton
+                        addTimerButton
+                    }
                         
                         // 计时器列表
                         ForEach($settings.timers) { $timer in
@@ -112,11 +111,9 @@ struct TimerManagementView: View {
                         }
                     }
                     .padding(.bottom, DesignTokens.Spacing.xl)
-                    .padding(.trailing, DesignTokens.Spacing.xl)
-                    .frame(width: proxy.size.width - DesignTokens.Spacing.xl, alignment: .leading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-        }
         .onAppear {
             // 默认焦点在第一个计时器
             if settings.focusedTimerID == nil, let firstTimer = settings.timers.first {
@@ -138,24 +135,19 @@ struct TimerManagementView: View {
     
     private var stayDurationSection: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-            SettingRow(icon: "timer", iconColor: .orange, title: "通知停留时间") {
+            SettingRow(icon: "timer", iconColor: .orange, title: "通知停留时间", fillWidth: true) {
                 let maxStayDuration = max(1.0, settings.intervalSeconds - 1.0)
-                HStack(spacing: DesignTokens.Spacing.sm) {
-                    ContinuousSlider(
-                        value: $settings.overlayStayDuration,
-                        range: 1...min(60, maxStayDuration),
-                        step: 0.5,
-                        disabled: false
-                    )
-                    .frame(width: DesignTokens.Layout.sliderWidth)
-                    .onChange(of: settings.overlayStayDuration) { _, _ in
-                        settings.validateTimingSettings()
-                    }
-                    Text(String(format: "%.1f秒", settings.overlayStayDuration))
-                        .font(DesignTokens.Typography.value)
-                        .fontWeight(.medium)
-                        .foregroundStyle(.orange)
-                        .frame(width: DesignTokens.Layout.valueDisplayWidth, alignment: .trailing)
+                SliderControl(
+                    value: $settings.overlayStayDuration,
+                    range: 1...min(60, maxStayDuration),
+                    step: 0.5,
+                    format: "%.1f",
+                    unit: "秒",
+                    color: .orange,
+                    disabled: false
+                )
+                .onChange(of: settings.overlayStayDuration) { _, _ in
+                    settings.validateTimingSettings()
                 }
             }
 
@@ -335,7 +327,7 @@ struct TimerItemCard: View {
                     .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .frame(width: 350, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: DesignTokens.Layout.cornerRadius)
                 .fill(isFocused ? Color.blue.opacity(0.05) : Color.secondary.opacity(0.05))
@@ -534,7 +526,16 @@ struct TimerItemCard: View {
             }
         }
     }
-    
+
+    // MARK: - Actions
+
+    private func sendTestNotification() {
+        guard timer.isContentValid() else { return }
+        Task {
+            await controller.sendTest(for: timer, settings: settings)
+        }
+    }
+
     // MARK: - Expanded View
 
     private var expandedView: some View {
@@ -548,7 +549,7 @@ struct TimerItemCard: View {
                     .foregroundStyle(.secondary)
                 
                 // 通知内容
-                SettingRow(icon: "face.smiling", iconColor: .green, title: "图标", labelWidth: 70) {
+                SettingRow(icon: "face.smiling", iconColor: .green, title: "图标") {
                     HStack(spacing: 6) {
                         TextField("", text: $timer.emoji)
                             .textFieldStyle(.roundedBorder)
@@ -576,14 +577,14 @@ struct TimerItemCard: View {
                     }
                 }
                 
-                SettingRow(icon: "textformat", iconColor: .green, title: "标题", labelWidth: 70) {
+                SettingRow(icon: "textformat", iconColor: .green, title: "标题") {
                     TextField("计时器名称", text: $timer.title)
                         .textFieldStyle(.roundedBorder)
                         .disabled(timer.isRunning)
                         .focused(focusedField, equals: .timerTitle(timer.id))
                 }
                 
-                SettingRow(icon: "text.alignleft", iconColor: .green, title: "描述", labelWidth: 70) {
+                SettingRow(icon: "text.alignleft", iconColor: .green, title: "描述") {
                     TextField("通知内容", text: $timer.body, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
                         .lineLimit(2...4)
@@ -600,7 +601,7 @@ struct TimerItemCard: View {
                     }
                     .pickerStyle(.segmented)
                     .disabled(timer.isRunning)
-                    .frame(width: 150)
+                    .fixedSize()
                 }
 
                 if timer.reminderType == .interval {
@@ -611,7 +612,7 @@ struct TimerItemCard: View {
 
                 // 通知频率（仅间隔提醒模式）
                 if timer.reminderType == .interval {
-                    SettingRow(icon: "timer", iconColor: .blue, title: "间隔", labelWidth: 70) {
+                    SettingRow(icon: "timer", iconColor: .blue, title: "间隔") {
                         VStack(alignment: .trailing, spacing: 6) {
                             HStack(spacing: 6) {
                                 TextField("间隔", text: $intervalInputValue, onEditingChanged: { isEditing in
@@ -688,7 +689,7 @@ struct TimerItemCard: View {
                     }
 
                     if timer.isRestEnabled {
-                        SettingRow(icon: "pause.circle.fill", iconColor: .purple, title: "时长", labelWidth: 70) {
+                        SettingRow(icon: "pause.circle.fill", iconColor: .purple, title: "时长") {
                             VStack(alignment: .trailing, spacing: 6) {
                                 HStack(spacing: 6) {
                                     TextField("时长", text: $restInputValue, onEditingChanged: { isEditing in
@@ -752,7 +753,21 @@ struct TimerItemCard: View {
 
                 // 提示音配置
                 soundConfigSection
-                
+
+                // 测试效果按钮
+                Button {
+                    sendTestNotification()
+                } label: {
+                    HStack {
+                        Image(systemName: "paperplane.fill")
+                        Text("测试通知效果")
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(timer.isRunning || !timer.isContentValid())
+
                 // 删除按钮
                 if settings.timers.count > 1 {
                     Button(role: .destructive) {

@@ -105,13 +105,14 @@ struct PageHeader: View {
     let iconColor: Color
     let title: String
     let subtitle: String
-    
+    var trailingContent: AnyView? = nil
+
     var body: some View {
         HStack(spacing: DesignTokens.Spacing.md) {
             Image(systemName: icon)
                 .font(.system(size: DesignTokens.Icon.pageHeader))
                 .foregroundStyle(iconColor.gradient)
-            
+
             VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
                 Text(title)
                     .font(DesignTokens.Typography.pageTitle)
@@ -120,11 +121,31 @@ struct PageHeader: View {
                     .font(DesignTokens.Typography.pageSubtitle)
                     .foregroundStyle(.secondary)
             }
-            
+
             Spacer()
+
+            if let trailingContent = trailingContent {
+                trailingContent
+            }
         }
         .padding(.top, DesignTokens.Spacing.md)
         .padding(.bottom, DesignTokens.Spacing.sm)
+    }
+
+    init(icon: String, iconColor: Color, title: String, subtitle: String) {
+        self.icon = icon
+        self.iconColor = iconColor
+        self.title = title
+        self.subtitle = subtitle
+        self.trailingContent = nil
+    }
+
+    init<Content: View>(icon: String, iconColor: Color, title: String, subtitle: String, @ViewBuilder trailing: () -> Content) {
+        self.icon = icon
+        self.iconColor = iconColor
+        self.title = title
+        self.subtitle = subtitle
+        self.trailingContent = AnyView(trailing())
     }
 }
 
@@ -296,18 +317,18 @@ struct SettingRowV2<Content: View>: View {
     }
     
     var body: some View {
-        HStack(spacing: DesignTokens.Spacing.md) {
+        HStack(alignment: .top, spacing: DesignTokens.Spacing.md) {
             // 左侧标签区
             HStack(spacing: DesignTokens.Spacing.sm) {
                 Image(systemName: icon)
                     .foregroundStyle(iconColor)
                     .frame(width: 20)
-                
+
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(DesignTokens.Typography.rowTitle)
                         .fontWeight(.medium)
-                    
+
                     if let description = description {
                         Text(description)
                             .font(.caption2)
@@ -316,11 +337,10 @@ struct SettingRowV2<Content: View>: View {
                 }
             }
             .frame(width: DesignTokens.Layout.labelWidth, alignment: .leading)
-            
-            Spacer()
-            
+
             // 右侧控件区
             content()
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, DesignTokens.Layout.rowVerticalPadding)
     }
@@ -417,11 +437,11 @@ struct SliderControl: View {
                 // 显示刻度：使用标准 Slider
                 Slider(value: $value, in: range, step: step)
                     .disabled(disabled)
-                    .frame(width: DesignTokens.Layout.sliderWidth)
+                    .frame(maxWidth: .infinity)
             } else {
                 // 隐藏刻度：使用自定义 NSSlider
                 ContinuousSlider(value: $value, range: range, step: step, disabled: disabled)
-                    .frame(width: DesignTokens.Layout.sliderWidth)
+                    .frame(maxWidth: .infinity)
             }
 
             Text(String(format: format, value * valueMultiplier) + unit)

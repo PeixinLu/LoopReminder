@@ -8,7 +8,7 @@ struct BasicSettingsView: View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
             // 页面标题 - 固定
             PageHeader(
-                icon: "gear.fill",
+                icon: "gear",
                 iconColor: .blue,
                 title: "基本设置",
                 subtitle: "配置一些启动项"
@@ -84,7 +84,7 @@ struct BasicSettingsView: View {
                 }
 
                 Divider().opacity(0.5)
-                
+
                 // 锁屏唤醒重计时
                 SettingToggleRow(
                     icon: "lock.rotation",
@@ -98,84 +98,6 @@ struct BasicSettingsView: View {
                 }
             }
         }
-    }
-
-    // MARK: - Notification Mode Section
-
-    private var notificationModeSection: some View {
-        SettingsSection(showDivider: false) {
-            VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
-                // 标题和选择器
-                HStack {
-                    Label {
-                        Text("通知方式")
-                            .font(.headline)
-                    } icon: {
-                        Image(systemName: "bell.badge.fill")
-                            .foregroundStyle(.purple)
-                    }
-
-                    Spacer()
-
-                    Picker("", selection: $settings.notificationMode) {
-                        ForEach(AppSettings.NotificationMode.allCases, id: \.self) { mode in
-                            Text(mode.rawValue).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 180)
-                    .disabled(settings.isRunning)
-                }
-
-                // 描述文字
-                Text(settings.notificationMode == .system ? "使用macOS系统通知中心" : "在屏幕右上角显示遮罩通知")
-                    .font(DesignTokens.Typography.hint)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, DesignTokens.Spacing.xxl)
-
-                // 系统通知模式提示
-                if settings.notificationMode == .system {
-                    WarningCard(color: .orange) {
-                        VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-                            HStack(spacing: DesignTokens.Spacing.sm) {
-                                Image(systemName: "bell.badge")
-                                    .font(DesignTokens.Typography.hint)
-                                    .foregroundStyle(.orange)
-                                VStack(alignment: .leading, spacing: DesignTokens.Spacing.xxs) {
-                                    Text("提醒将发送到控制中心。需确保开启了通知权限")
-                                        .font(DesignTokens.Typography.hint)
-                                        .foregroundStyle(.secondary)
-                                    Button(action: openNotificationSettings) {
-                                        Text("[前往配置]")
-                                            .font(DesignTokens.Typography.hint)
-                                            .foregroundStyle(.blue)
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                            }
-
-                            Divider()
-
-                            HStack(spacing: DesignTokens.Spacing.sm) {
-                                Image(systemName: "exclamationmark.triangle")
-                                    .font(DesignTokens.Typography.hint)
-                                    .foregroundStyle(.orange)
-                                Text("推荐使用遮罩通知！由于macOS的通知机制，内容相似的通知可能被静默合并，导致漏接提醒。")
-                                    .font(DesignTokens.Typography.hint)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .padding(.leading, DesignTokens.Spacing.xxl)
-                }
-
-                if settings.isRunning {
-                    LockHint("请先暂停才能修改通知方式")
-                        .padding(.leading, DesignTokens.Spacing.xxl)
-                }
-            }
-        }
-        .runningStateStyle(isRunning: settings.isRunning)
     }
 
     // MARK: - Helper Methods
