@@ -1,11 +1,3 @@
-<!--
- * @Author: px lupeixin@datatell.com.cn
- * @Date: 2026-04-01 11:30:24
- * @LastEditors: px lupeixin@datatell.com.cn
- * @LastEditTime: 2026-04-05 13:53:57
- * @FilePath: /LoopReminder/README.md
- * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
--->
 <h1 align="center">
   <br>
   <img src="LoopReminder/Assets.xcassets/AppIcon.appiconset/icon_128x128@2x.png" width="100" alt="Loop Reminder">
