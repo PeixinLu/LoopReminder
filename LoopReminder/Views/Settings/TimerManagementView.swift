@@ -279,6 +279,8 @@ private struct TimerManagerListItemView: View {
     let onDelete: () -> Void
 
     @State private var isHovering = false
+    @State private var isEditHovering = false
+    @State private var isDeleteHovering = false
     @State private var now = Date()
 
     private let ticker = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
@@ -304,16 +306,23 @@ private struct TimerManagerListItemView: View {
                         .frame(width: 30)
 
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(timer.displayName)
-                            .font(.headline)
-                            .lineLimit(1)
+                        HStack(spacing: 4) {
+                            Text(timer.displayName)
+                                .font(.headline)
+                                .lineLimit(1)
+                            if !timer.body.isEmpty {
+                                Text(timer.body)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
+                        }
 
                         HStack(spacing: 6) {
-                            Text(timer.body.isEmpty ? "无副标题" : timer.body)
-                                .lineLimit(1)
-                            Text("·")
-                            Text(scheduleSummary)
-                                .foregroundStyle(.secondary)
+                            Text(scheduleTypeSummary)
+                            Circle()
+                                .fill(timer.customColor?.toColor() ?? .secondary)
+                                .frame(width: 8, height: 8)
                         }
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -322,28 +331,44 @@ private struct TimerManagerListItemView: View {
 
                 Spacer()
 
-                if let customColor = timer.customColor {
-                    Circle()
-                        .fill(customColor.toColor())
-                        .frame(width: 11, height: 11)
-                        .help("自定义颜色")
-                }
-                
-                
                 if isHovering {
-                    Button("删除", role: .destructive) {
+                    Button {
                         onDelete()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
+                            .foregroundStyle(.red)
+                            .opacity(isDeleteHovering ? 0.7 : 1)
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
+                    .buttonStyle(.plain)
+                    .onHover { hovering in
+                        withAnimation(.easeInOut(duration: 0.12)) {
+                            isDeleteHovering = hovering
+                        }
+                    }
                     .transition(.opacity.combined(with: .scale))
+                    .help("删除")
                 }
 
-                Button("编辑") {
+                Button {
                     onEdit()
+                } label: {
+                    Label("编辑", systemImage: "slider.horizontal.3")
+                        .font(.callout)
+                        .foregroundStyle(isEditHovering ? .primary : .secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(isEditHovering ? Color.secondary.opacity(0.12) : Color.secondary.opacity(0.06))
+                        )
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .buttonStyle(.plain)
+                .onHover { hovering in
+                    withAnimation(.easeInOut(duration: 0.12)) {
+                        isEditHovering = hovering
+                    }
+                }
                 .disabled(timer.isRunning)
                 .help(timer.isRunning ? "请先暂停才能编辑" : "编辑")
             }
@@ -403,17 +428,17 @@ private struct TimerManagerListItemView: View {
         }
     }
 
-    private var scheduleSummary: String {
+    private var scheduleTypeSummary: String {
         switch timer.reminderType {
         case .interval:
-            return "间隔提醒 · 每 \(timer.formattedInterval())"
+            return "间隔 · 每 \(timer.formattedInterval())"
         case .scheduled:
             let enabled = timer.scheduledTimes.filter(\.enabled).sorted { ($0.hour, $0.minute) < ($1.hour, $1.minute) }
             if enabled.isEmpty {
-                return "定点提醒 · 无启用时间"
+                return "定点 · 无启用时间"
             }
             let values = enabled.prefix(3).map { $0.formattedTime() }.joined(separator: " / ")
-            return enabled.count > 3 ? "定点提醒 · \(values) 等 \(enabled.count) 个" : "定点提醒 · \(values)"
+            return enabled.count > 3 ? "定点 · \(values) 等 \(enabled.count) 个" : "定点 · \(values)"
         }
     }
 }
@@ -505,9 +530,11 @@ private struct TimerDetailView: View {
 
             HStack(alignment: .top, spacing: DesignTokens.Spacing.xl) {
                 VStack(alignment: .leading, spacing: 6) {
-                    DetailLine(label: "颜色", value: timer.customColor?.colorType.rawValue ?? "跟随全局")
                     DetailLine(label: "提示音", value: timer.soundName ?? "无")
                     DetailLine(label: "停留", value: timer.stayDurationMode == .fixed ? "\(Int(timer.stayDurationSeconds)) 秒" : "直到下次通知")
+                    if timer.reminderType == .scheduled {
+                        scheduledTimesDetail
+                    }
                 }
 
                 Spacer(minLength: 12)
@@ -517,13 +544,33 @@ private struct TimerDetailView: View {
         }
     }
 
-    private var detailSchedule: String {
-        switch timer.reminderType {
-        case .interval:
-            return "间隔提醒 · 每 \(timer.formattedInterval())"
-        case .scheduled:
-            let times = timer.scheduledTimes.filter(\.enabled).sorted { ($0.hour, $0.minute) < ($1.hour, $1.minute) }
-            return "定点提醒 · " + (times.isEmpty ? "无启用时间" : times.map { $0.formattedTime() }.joined(separator: " / "))
+    private var scheduledTimesDetail: some View {
+        let enabled = timer.scheduledTimes.filter(\.enabled).sorted { ($0.hour, $0.minute) < ($1.hour, $1.minute) }
+        return Group {
+            if enabled.isEmpty {
+                DetailLine(label: "时间点", value: "无启用时间")
+            } else {
+                HStack(alignment: .top, spacing: 8) {
+                    Text("时间点")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 42, alignment: .leading)
+                    FlowLayout(spacing: 6) {
+                        ForEach(enabled) { time in
+                            Text(time.formattedTime())
+                                .font(.caption)
+                                .monospacedDigit()
+                                .foregroundStyle(.primary)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(
+                                    Capsule()
+                                        .fill(Color.secondary.opacity(0.1))
+                                )
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -599,13 +646,13 @@ private struct ReminderStatsChartView: View {
                     .padding(.top, 6)
 
                     if let hoverLocation {
-                        Text(timeString(for: axisRange.date(atX: Double(snappedX(hoverLocation.x, width: proxy.size.width)), width: Double(proxy.size.width))))
+                        Text(timeStringWithSeconds(for: axisRange.date(atX: Double(snappedX(hoverLocation.x, width: proxy.size.width)), width: Double(proxy.size.width))))
                             .font(.caption2)
                             .monospacedDigit()
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
                             .background(Capsule().fill(Color(nsColor: .windowBackgroundColor)))
-                            .offset(x: min(max(4, hoverLocation.x - 24), proxy.size.width - 52), y: proxy.size.height - 22)
+                            .offset(x: min(max(4, hoverLocation.x - 30), proxy.size.width - 64), y: proxy.size.height - 22)
                     }
 
                     HoverTrackingView { point in
@@ -638,13 +685,44 @@ private struct ReminderStatsChartView: View {
     }
 
     private func drawEventLines(in context: GraphicsContext, size: CGSize) {
-        for event in todayEvents {
-            let x = xPosition(for: event.firedAt, width: size.width)
-            let color: Color = event.status == .completed ? .green : .blue
+        let eventPositions = todayEvents.map { (event: $0, x: xPosition(for: $0.firedAt, width: size.width)) }
+
+        // 确定当前 hover 吸附到的竖线索引
+        let snappedEventIndex: Int?
+        if let hoverLocation {
+            let snappedXPos = snappedX(hoverLocation.x, width: size.width)
+            snappedEventIndex = eventPositions.firstIndex(where: { abs($0.x - snappedXPos) < 0.5 })
+        } else {
+            snappedEventIndex = nil
+        }
+
+        // 计算每条竖线到相邻竖线的最小间距（像素）
+        let proximityThreshold: CGFloat = 6
+
+        for (index, item) in eventPositions.enumerated() {
+            let x = item.x
+            let color: Color = item.event.status == .completed ? .green : .blue
+
+            let neighborDistances = eventPositions.compactMap { other -> CGFloat? in
+                let dist = abs(other.x - x)
+                return dist > 0.5 ? dist : nil
+            }
+            let minDistance = neighborDistances.min() ?? .greatestFiniteMagnitude
+
+            // 线宽：hover 吸附 → 粗线；紧密相邻 → 极细防粘连；普通 → 细线
+            let lineWidth: CGFloat
+            if snappedEventIndex == index {
+                lineWidth = 3
+            } else if minDistance < proximityThreshold {
+                lineWidth = 0.5
+            } else {
+                lineWidth = 1
+            }
+
             var path = Path()
             path.move(to: CGPoint(x: x, y: 28))
             path.addLine(to: CGPoint(x: x, y: size.height - 18))
-            context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+            context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
         }
     }
 
@@ -679,6 +757,19 @@ private struct ReminderStatsChartView: View {
         let hour = calendar.component(.hour, from: date)
         let minute = calendar.component(.minute, from: date)
         return String(format: "%02d:%02d", hour, minute)
+    }
+
+    private func timeStringWithSeconds(for date: Date) -> String {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: axisRange.start)
+        let secondsSinceStartOfDay = date.timeIntervalSince(startOfDay)
+        if secondsSinceStartOfDay >= 86_400 {
+            return "24:00:00"
+        }
+        let hour = calendar.component(.hour, from: date)
+        let minute = calendar.component(.minute, from: date)
+        let second = calendar.component(.second, from: date)
+        return String(format: "%02d:%02d:%02d", hour, minute, second)
     }
 }
 
