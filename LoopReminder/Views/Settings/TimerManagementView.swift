@@ -843,52 +843,39 @@ private struct TimerEditorSheet: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
-                    NotificationContentEditor(timer: $timer)
-                    configurationPanel
+        ScrollView {
+            VStack(alignment: .leading, spacing: DesignTokens.Spacing.lg) {
+                NotificationContentEditor(timer: $timer)
+                configurationPanel
 
-                    if let validationMessage {
-                        InfoHint(validationMessage, color: .orange)
-                    }
+                if let validationMessage {
+                    InfoHint(validationMessage, color: .orange)
                 }
-                .frame(width: TimerEditorMetrics.sheetContentWidth, alignment: .leading)
-                .padding(.horizontal, TimerEditorMetrics.sheetHorizontalPadding)
-                .padding(.top, 72)
-                .padding(.bottom, TimerEditorMetrics.sheetVerticalPadding)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            editorHeader
+            .frame(width: TimerEditorMetrics.sheetContentWidth, alignment: .leading)
+            .padding(.horizontal, TimerEditorMetrics.sheetHorizontalPadding)
+            .padding(.vertical, TimerEditorMetrics.sheetVerticalPadding)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .frame(width: TimerEditorMetrics.sheetWidth, height: 620)
+        .navigationTitle(editorTitle)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("取消") { dismiss() }
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button("保存") { save() }
+                    .disabled(!canSave)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
         .onAppear {
             initializeColor()
         }
     }
 
-    private var editorHeader: some View {
-        HStack(spacing: DesignTokens.Spacing.md) {
-            Text(originalID == nil ? "添加计时器" : "编辑计时器")
-                .font(.headline)
-            Spacer()
-            Button("取消") { dismiss() }
-                .buttonStyle(.bordered)
-            Button("保存") { save() }
-                .buttonStyle(.borderedProminent)
-                .disabled(!canSave)
-        }
-        .padding(.horizontal, TimerEditorMetrics.sheetHorizontalPadding)
-        .frame(width: TimerEditorMetrics.sheetWidth, height: 56)
-        .background(.regularMaterial)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(Color.secondary.opacity(0.12))
-                .frame(height: 1)
-        }
-        .shadow(color: Color.black.opacity(0.08), radius: 10, y: 4)
-        .zIndex(1)
+    private var editorTitle: String {
+        originalID == nil ? "添加计时器" : "编辑计时器"
     }
 
     private var configurationPanel: some View {
@@ -1723,9 +1710,11 @@ private struct SoundSelectionEditor: View {
 }
 private struct NotificationContentEditor: View {
     @EnvironmentObject private var settings: AppSettings
+    @EnvironmentObject private var controller: ReminderController
     @Binding var timer: TimerItem
     @FocusState private var focusedField: Field?
     @State private var isEmojiPickerPresented = false
+    @State private var isSendingTest = false
 
     private enum Field: Hashable {
         case title
@@ -1770,12 +1759,32 @@ private struct NotificationContentEditor: View {
                         .lineLimit(2...3)
                         .focused($focusedField, equals: .body)
                 }
+
+                Button {
+                    sendTestNotification()
+                } label: {
+                    Label(isSendingTest ? "发送中" : "测试效果", systemImage: "play.circle.fill")
+                        .frame(minWidth: 86)
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.large)
+                .disabled(!timer.isContentValid() || isSendingTest)
+                .help("测试当前通知内容")
             }
             .padding(DesignTokens.Spacing.md)
             .background(
                 RoundedRectangle(cornerRadius: 8)
                     .fill(Color.secondary.opacity(0.06))
             )
+        }
+    }
+
+    private func sendTestNotification() {
+        focusedField = nil
+        isSendingTest = true
+        Task {
+            await controller.sendTest(for: timer, settings: settings)
+            isSendingTest = false
         }
     }
 }
@@ -1917,6 +1926,13 @@ private struct IntervalConfigEditor: View {
     @Binding var value: String
     @Binding var unit: TimerTimeUnit
 
+    private let stepButtonWidth: CGFloat = 34
+    private let valueWidth: CGFloat = 62
+    private let dividerWidth: CGFloat = 1
+    private var unitWidth: CGFloat {
+        TimerEditorMetrics.compoundControlWidth - stepButtonWidth * 2 - valueWidth - dividerWidth
+    }
+
     var body: some View {
         HStack(spacing: 0) {
             stepButton(systemName: "minus", delta: -1, accessibilityLabel: "减少间隔")
@@ -1935,7 +1951,7 @@ private struct IntervalConfigEditor: View {
             stepButton(systemName: "plus", delta: 1, accessibilityLabel: "增加间隔")
 
             Divider()
-                .frame(height: 20)
+                .frame(width: dividerWidth, height: 20)
 
             Menu {
                 ForEach(TimerTimeUnit.allCases, id: \.self) { option in
@@ -1947,12 +1963,12 @@ private struct IntervalConfigEditor: View {
             } label: {
                 HStack(spacing: 4) {
                     Text(unit.rawValue)
-                        .frame(maxWidth: .infinity)
                     Image(systemName: "chevron.down")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
                 }
-                .frame(width: 70, height: 30)
+                .frame(maxWidth: .infinity)
+                .frame(width: unitWidth, height: 30)
                 .contentShape(Rectangle())
             }
             .menuStyle(.button)
@@ -1976,7 +1992,7 @@ private struct IntervalConfigEditor: View {
         } label: {
             Image(systemName: systemName)
                 .font(.system(size: 12, weight: .semibold))
-                .frame(width: 34, height: 30)
+                .frame(width: stepButtonWidth, height: 30)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -2459,6 +2475,7 @@ private enum SystemSound: String, CaseIterable {
 #Preview("编辑弹窗") {
     TimerEditorSheet(draft: .new(TimerItem(emoji: "🔔", title: "提醒", body: "起来活动一下"))) { _, _ in }
         .environmentObject(AppSettings())
+        .environmentObject(ReminderController())
 }
 
 #Preview("时间选择器") {
