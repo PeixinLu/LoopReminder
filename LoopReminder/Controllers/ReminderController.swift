@@ -18,6 +18,7 @@ final class ReminderController: ObservableObject {
 
     // 多通知管理
     private var overlayWindows: [UUID: NSPanel] = [:] // 每个计时器的通知窗口
+    private var overlayEventIDs: [UUID: UUID] = [:]
     private var notificationOrder: [UUID] = [] // 通知显示顺序（从上到下）
     private var windowScreens: [UUID: NSScreen] = [:] // 记录每个窗口所在的屏幕
     
@@ -97,6 +98,7 @@ final class ReminderController: ObservableObject {
             // 标记为运行中
             if let index = settings.timers.firstIndex(where: { $0.id == timer.id }) {
                 settings.timers[index].isRunning = true
+                settings.timers[index].startedAtEpoch = Date().timeIntervalSince1970
             }
         }
 
@@ -175,32 +177,8 @@ final class ReminderController: ObservableObject {
 
     /// 发送定点提醒通知
     private func sendScheduledNotification(timer: TimerItem, settings: AppSettings) async {
-        let content = buildContent(timer: timer)
-        let style = buildOverlayStyle(timer: timer, settings: settings)
-
-        logger.log("定点提醒触发: \(timer.displayName) - \(content.title.isEmpty ? "(无标题)" : content.title)")
-
-        // 播放提示音
-        playSound(for: timer)
-
-        // 创建临时 TimerItem 用于发送通知（不影响原有计时器状态）
-        let tempTimerItem = TimerItem(
-            emoji: timer.emoji,
-            title: timer.title,
-            body: timer.body,
-            intervalSeconds: 86400,
-            isRestEnabled: false,
-            restSeconds: 0,
-            customColor: timer.customColor,
-            lastFireEpoch: Date().timeIntervalSince1970
-        )
-
-        switch settings.notificationMode {
-        case .system:
-            await sendSystemNotification(content: content)
-        case .overlay:
-            showOverlayNotification(timer: tempTimerItem, settings: settings, content: content, style: style, triggerRestOnDismiss: false)
-        }
+        logger.log("定点提醒触发: \(timer.displayName)")
+        await sendNotification(for: timer, settings: settings, triggerRestOnDismiss: false)
     }
 
     func stop() {
@@ -226,12 +204,17 @@ final class ReminderController: ObservableObject {
         if var allTimers = settingsRef?.timers {
             for i in allTimers.indices {
                 allTimers[i].isRunning = false
+                allTimers[i].startedAtEpoch = 0
             }
             settingsRef?.timers = allTimers
         }
 
         isResting = false
         // 停止时关闭所有未关闭的通知弹窗
+        for (_, eventID) in overlayEventIDs {
+            settingsRef?.resolveReminderEvent(eventID, as: .missed)
+        }
+        overlayEventIDs.removeAll()
         closeOverlay()
         logger.log("计时器已停止")
     }
@@ -263,6 +246,7 @@ final class ReminderController: ObservableObject {
         // 标记为运行中
         if let index = settings.timers.firstIndex(where: { $0.id == timerID }) {
             settings.timers[index].isRunning = true
+            settings.timers[index].startedAtEpoch = Date().timeIntervalSince1970
         }
 
         logger.log("启动计时器: \(timer.displayName)")
@@ -304,10 +288,13 @@ final class ReminderController: ObservableObject {
         // 标记为未运行
         if let index = settings.timers.firstIndex(where: { $0.id == timerID }) {
             settings.timers[index].isRunning = false
+            settings.timers[index].startedAtEpoch = 0
         }
         
         // 关闭该计时器的通知弹窗（如果有）
         if let window = overlayWindows[timerID] {
+            settings.resolveReminderEvent(overlayEventIDs[timerID], as: .missed)
+            overlayEventIDs.removeValue(forKey: timerID)
             // 从字典和顺序中移除
             overlayWindows.removeValue(forKey: timerID)
             windowScreens.removeValue(forKey: timerID)
@@ -425,6 +412,7 @@ final class ReminderController: ObservableObject {
 
         let payload = content ?? buildContent(timer: timer)
         let style = overlayStyle ?? buildOverlayStyle(timer: timer, settings: settings)
+        let eventID = isTest ? nil : settings.recordReminderFired(timerID: timer.id, scheduledAt: Date(), firedAt: Date())
         logger.log("发送通知: \(payload.title.isEmpty ? "(无标题)" : payload.title) | 模式 \(settings.notificationMode.rawValue)\(isTest ? " [测试]" : "")\(skipSound ? " [静音]" : "")")
 
         // 播放提示音
@@ -435,8 +423,9 @@ final class ReminderController: ObservableObject {
         switch settings.notificationMode {
         case .system:
             await sendSystemNotification(content: payload)
+            settings.resolveReminderEvent(eventID, as: .missed)
         case .overlay:
-            showOverlayNotification(timer: timer, settings: settings, content: payload, style: style, triggerRestOnDismiss: triggerRestOnDismiss)
+            showOverlayNotification(timer: timer, settings: settings, content: payload, style: style, triggerRestOnDismiss: triggerRestOnDismiss, eventID: eventID)
         }
     }
 
@@ -516,7 +505,7 @@ final class ReminderController: ObservableObject {
         return OverlayStyle(
             backgroundColor: backgroundColor,
             backgroundOpacity: settings.overlayOpacity,
-            stayDuration: settings.overlayStayDuration,
+            stayDuration: overlayStayDuration(for: timer),
             enableFadeOut: settings.overlayEnableFadeOut,
             fadeOutDelay: settings.overlayFadeOutDelay,
             fadeOutDuration: settings.overlayFadeOutDuration,
@@ -536,6 +525,23 @@ final class ReminderController: ObservableObject {
             overlayMaterial: settings.overlayMaterial,
             liquidGlassStyle: settings.liquidGlassStyle
         )
+    }
+
+    private func overlayStayDuration(for timer: TimerItem) -> Double {
+        if timer.stayDurationMode == .fixed {
+            return max(1, timer.stayDurationSeconds)
+        }
+
+        switch timer.reminderType {
+        case .interval:
+            return max(1, timer.intervalSeconds)
+        case .scheduled:
+            let enabledTimes = timer.scheduledTimes.filter { $0.enabled }
+            guard !enabledTimes.isEmpty else { return max(1, settingsRef?.overlayStayDuration ?? 5) }
+            let nextDates = enabledTimes.map { calculateNextFireDate(hour: $0.hour, minute: $0.minute) }
+            let nextDate = nextDates.min() ?? Date().addingTimeInterval(300)
+            return max(1, nextDate.timeIntervalSince(Date()))
+        }
     }
     
     private func buildStartOverlayStyle(settings: AppSettings) -> OverlayStyle {
@@ -682,9 +688,11 @@ final class ReminderController: ObservableObject {
         }
     }
     
-    private func showOverlayNotification(timer: TimerItem, settings: AppSettings, content: NotificationContent, style: OverlayStyle, triggerRestOnDismiss: Bool) {
+    private func showOverlayNotification(timer: TimerItem, settings: AppSettings, content: NotificationContent, style: OverlayStyle, triggerRestOnDismiss: Bool, eventID: UUID? = nil) {
         // 关闭该计时器的旧通知（同个计时器的通知会覆盖）
         if let existingWindow = overlayWindows[timer.id] {
+            settings.resolveReminderEvent(overlayEventIDs[timer.id], as: .missed)
+            overlayEventIDs.removeValue(forKey: timer.id)
             // 立即从字典和顺序中移除，防止新通知计算位置时把旧窗口算进去
             overlayWindows.removeValue(forKey: timer.id)
             windowScreens.removeValue(forKey: timer.id)
@@ -882,11 +890,23 @@ final class ReminderController: ObservableObject {
             textColor: style.textColor,
             overlayMaterial: style.overlayMaterial,
             liquidGlassStyle: style.liquidGlassStyle,
-            onDismiss: { [weak self, weak window, timerID = timer.id] isUserDismiss in
+            onDismiss: { [weak self, weak window, timerID = timer.id] reason in
                 Task {
                     guard let self, let w = window else { return }
                     // 检查是否是该计时器的窗口（防止处理已被替换的旧窗口）
                     if let current = self.overlayWindows[timerID], current === w {
+                        let resolvedStatus: ReminderEventStatus
+                        switch reason {
+                        case .completed:
+                            resolvedStatus = .completed
+                        case .ignored:
+                            resolvedStatus = .ignored
+                        case .missed:
+                            resolvedStatus = .missed
+                        }
+                        settings.resolveReminderEvent(self.overlayEventIDs[timerID], as: resolvedStatus)
+                        self.overlayEventIDs.removeValue(forKey: timerID)
+
                         // 从字典和顺序中移除（先移除再关闭，确保重新布局时不会计算它）
                         self.overlayWindows.removeValue(forKey: timerID)
                         
@@ -909,8 +929,8 @@ final class ReminderController: ObservableObject {
                             w?.close()
                         })
                         
-                        // 只有循环提醒类型且用户手动关闭通知时才触发休息机制
-                        if triggerRestOnDismiss && isUserDismiss && timer.reminderType == .interval && timer.isRestEnabled {
+                        // 只有循环提醒类型且用户主动处理通知时才触发休息机制
+                        if triggerRestOnDismiss && reason != .missed && timer.reminderType == .interval && timer.isRestEnabled {
                             // 停止当前计时器的定时器
                             if let t = self.timers[timerID] {
                                 t.invalidate()
@@ -945,6 +965,9 @@ final class ReminderController: ObservableObject {
         
         // 添加到窗口字典和顺序列表
         self.overlayWindows[timer.id] = window
+        if let eventID {
+            self.overlayEventIDs[timer.id] = eventID
+        }
         self.notificationOrder.append(timer.id)
         self.windowScreens[timer.id] = screen // 记录窗口所在的屏幕
     }

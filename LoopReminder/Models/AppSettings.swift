@@ -129,6 +129,9 @@ final class AppSettings: ObservableObject {
         // 多计时器
         static let timers = "timers"
         static let focusedTimerID = "focusedTimerID"
+        static let reminderEvents = "reminderEvents"
+        static let timerCustomColorPresets = "timerCustomColorPresets"
+        static let recentEmojis = "recentEmojis"
         // 材质选项
         static let overlayMaterial = "overlayMaterial"
         static let liquidGlassStyle = "liquidGlassStyle"
@@ -183,6 +186,9 @@ final class AppSettings: ObservableObject {
     // 多计时器支持
     @Published var timers: [TimerItem]
     @Published var focusedTimerID: UUID?
+    @Published var reminderEvents: [ReminderEvent]
+    @Published var timerCustomColorPresets: [TimerCustomColorPreset]
+    @Published var recentEmojis: [String]
 
     // 材质选项
     @Published var overlayMaterial: OverlayMaterial
@@ -333,6 +339,22 @@ final class AppSettings: ObservableObject {
         let liquidGlassStyleRawValue = defaults.string(forKey: Keys.liquidGlassStyle) ?? config.overlay.liquidGlassStyle
         self.liquidGlassStyle = LiquidGlassStyle(rawValue: liquidGlassStyleRawValue) ?? .regular
 
+        if let eventsData = defaults.data(forKey: Keys.reminderEvents),
+           let decodedEvents = try? JSONDecoder().decode([ReminderEvent].self, from: eventsData) {
+            self.reminderEvents = decodedEvents
+        } else {
+            self.reminderEvents = []
+        }
+
+        if let presetsData = defaults.data(forKey: Keys.timerCustomColorPresets),
+           let decodedPresets = try? JSONDecoder().decode([TimerCustomColorPreset].self, from: presetsData) {
+            self.timerCustomColorPresets = decodedPresets
+        } else {
+            self.timerCustomColorPresets = []
+        }
+
+        self.recentEmojis = defaults.stringArray(forKey: Keys.recentEmojis) ?? ["🔔", "⏰", "💧", "💊", "🏃", "😴"]
+
         // Load - focusedTimerID
         if let focusedIDString = defaults.string(forKey: Keys.focusedTimerID) {
             self.focusedTimerID = UUID(uuidString: focusedIDString)
@@ -400,6 +422,22 @@ final class AppSettings: ObservableObject {
             self?.defaults.set(id?.uuidString, forKey: Keys.focusedTimerID)
         }.store(in: &cancellables)
 
+        $reminderEvents.dropFirst().sink { [weak self] events in
+            if let encoded = try? JSONEncoder().encode(events) {
+                self?.defaults.set(encoded, forKey: Keys.reminderEvents)
+            }
+        }.store(in: &cancellables)
+
+        $timerCustomColorPresets.dropFirst().sink { [weak self] presets in
+            if let encoded = try? JSONEncoder().encode(presets) {
+                self?.defaults.set(encoded, forKey: Keys.timerCustomColorPresets)
+            }
+        }.store(in: &cancellables)
+
+        $recentEmojis.dropFirst().sink { [weak self] emojis in
+            self?.defaults.set(emojis, forKey: Keys.recentEmojis)
+        }.store(in: &cancellables)
+
         // Persist changes - 定点提醒
         // Persist changes - 材质选项
         $overlayMaterial.dropFirst().sink { [weak self] in self?.defaults.set($0.rawValue, forKey: Keys.overlayMaterial) }.store(in: &cancellables)
@@ -435,6 +473,30 @@ final class AppSettings: ObservableObject {
             overlayFadeOutDuration = max(0.5, maxFadeOutDuration)
         }
         if overlayFadeOutDuration < 0.5 { overlayFadeOutDuration = 0.5 }
+    }
+
+    func recordReminderFired(timerID: UUID, scheduledAt: Date = Date(), firedAt: Date = Date()) -> UUID {
+        let event = ReminderEvent(timerID: timerID, scheduledAt: scheduledAt, firedAt: firedAt)
+        reminderEvents.append(event)
+        trimReminderEvents()
+        return event.id
+    }
+
+    func resolveReminderEvent(_ eventID: UUID?, as status: ReminderEventStatus, resolvedAt: Date = Date()) {
+        guard let eventID,
+              let index = reminderEvents.firstIndex(where: { $0.id == eventID }),
+              reminderEvents[index].status == .fired else {
+            return
+        }
+
+        reminderEvents[index].status = status
+        reminderEvents[index].resolvedAt = resolvedAt
+    }
+
+    private func trimReminderEvents() {
+        let calendar = Calendar.current
+        let cutoff = calendar.date(byAdding: .day, value: -14, to: Date()) ?? Date()
+        reminderEvents.removeAll { $0.firedAt < cutoff }
     }
 
     var lastFireDate: Date? {
@@ -513,6 +575,29 @@ final class AppSettings: ObservableObject {
         case .teal: return .teal
         case .custom: return overlayCustomColor
         }
+    }
+
+    @discardableResult
+    func saveTimerCustomColorPreset(id: String? = nil, color: Color) -> TimerCustomColorPreset? {
+        if let id,
+           let index = timerCustomColorPresets.firstIndex(where: { $0.id == id }) {
+            let nextPreset = TimerCustomColorPreset(id: id, color: color)
+            timerCustomColorPresets[index] = nextPreset
+            return nextPreset
+        }
+
+        guard timerCustomColorPresets.count < TimerCustomColorPreset.maximumCount else {
+            return nil
+        }
+
+        let existingIDs = Set(timerCustomColorPresets.map(\.id))
+        let nextPreset = TimerCustomColorPreset(id: TimerCustomColorPreset.makeID(excluding: existingIDs), color: color)
+        timerCustomColorPresets.append(nextPreset)
+        return nextPreset
+    }
+
+    func recordRecentEmoji(_ emoji: String) {
+        recentEmojis = EmojiSelection.recentEmojis(afterSelecting: emoji, existing: recentEmojis, limit: 20)
     }
 
     func isContentValid() -> Bool {

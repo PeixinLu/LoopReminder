@@ -29,24 +29,13 @@ struct MenuBarView: View {
 
                     Spacer()
 
-                    // 全部启停按钮
                     let hasRunningTimer = settings.timers.contains(where: { $0.isRunning })
-                    Button(action: toggleAll) {
-                        HStack(spacing: 4) {
-                            Image(systemName: hasRunningTimer ? "stop.fill" : "play.fill")
-                                .font(.system(size: 10, weight: .semibold))
-                            Text(hasRunningTimer ? "全部停止" : "全部启动")
-                                .font(.system(size: 11))
-                        }
-                        .foregroundStyle(hasRunningTimer ? .orange : .green)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            Capsule()
-                                .fill(hasRunningTimer ? Color.orange.opacity(0.15) : Color.green.opacity(0.15))
-                        )
-                    }
-                    .buttonStyle(PlainButtonStyle())
+                    MenuBarPillButton(
+                        icon: hasRunningTimer ? "stop.fill" : "play.fill",
+                        title: hasRunningTimer ? "全部停止" : "全部启动",
+                        tint: hasRunningTimer ? .orange : .green,
+                        action: toggleAll
+                    )
                 }
                 .padding(.horizontal, 8)
 
@@ -121,15 +110,24 @@ struct MenuBarTextButton: View {
     let shortcut: String
     let action: () -> Void
 
+    @State private var isHovered = false
+    @State private var isPressed = false
+
+    private var appearance: MenuBarControlAppearance {
+        MenuBarControlAppearance(isHovered: isHovered, isPressed: isPressed, isEnabled: true)
+    }
+
     var body: some View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Image(systemName: icon)
                     .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(isHovered ? .primary : .secondary)
+                    .frame(width: 18)
 
                 Text(title)
                     .font(.system(size: 13))
+                    .foregroundStyle(.primary)
 
                 Spacer()
 
@@ -139,9 +137,104 @@ struct MenuBarTextButton: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(Color.primary.opacity(appearance.backgroundOpacity))
+            )
             .contentShape(Rectangle())
+            .scaleEffect(appearance.scale)
+            .opacity(appearance.foregroundOpacity)
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(PressablePlainButtonStyle())
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) {
+                isHovered = hovering
+            }
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if !isPressed {
+                        withAnimation(.easeOut(duration: 0.08)) {
+                            isPressed = true
+                        }
+                    }
+                }
+                .onEnded { _ in
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        isPressed = false
+                    }
+                }
+        )
+    }
+}
+
+struct MenuBarPillButton: View {
+    let icon: String
+    let title: String
+    let tint: Color
+    let action: () -> Void
+
+    @State private var isHovered = false
+    @State private var isPressed = false
+
+    private var appearance: MenuBarControlAppearance {
+        MenuBarControlAppearance(isHovered: isHovered, isPressed: isPressed, isEnabled: true)
+    }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .semibold))
+                Text(title)
+                    .font(.system(size: 11))
+            }
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Capsule()
+                    .fill(tint.opacity(isHovered ? 0.24 : 0.15))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(tint.opacity(isHovered ? 0.35 : 0), lineWidth: 1)
+            )
+            .contentShape(Capsule())
+            .scaleEffect(appearance.scale)
+        }
+        .buttonStyle(PressablePlainButtonStyle())
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) {
+                isHovered = hovering
+            }
+            if hovering {
+                NSCursor.pointingHand.push()
+            } else {
+                NSCursor.pop()
+            }
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { _ in
+                    if !isPressed {
+                        withAnimation(.easeOut(duration: 0.08)) {
+                            isPressed = true
+                        }
+                    }
+                }
+                .onEnded { _ in
+                    withAnimation(.easeOut(duration: 0.12)) {
+                        isPressed = false
+                    }
+                }
+        )
     }
 }
 
@@ -175,7 +268,7 @@ struct MenuBarButton: View {
             )
             .contentShape(Rectangle())
         }
-        .buttonStyle(PlainButtonStyle())
+        .buttonStyle(PressablePlainButtonStyle())
     }
 }
 
@@ -184,6 +277,8 @@ struct MenuBarButton: View {
 struct TimerRowView: View {
     let timer: TimerItem
     let onToggle: () -> Void
+
+    @State private var isHovered = false
 
     /// 格式化提醒计划显示文本
     private var scheduleText: String {
@@ -204,54 +299,109 @@ struct TimerRowView: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            // Emoji 图标
-            Text(timer.emoji)
-                .font(.system(size: 16))
-                .frame(width: 24)
+        let isEnabled = timer.isContentValid()
+        let appearance = MenuBarControlAppearance(isHovered: isHovered, isPressed: false, isEnabled: isEnabled)
 
-            // 计时器名称和状态
-            VStack(alignment: .leading, spacing: 2) {
-                Text(timer.displayName)
-                    .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
+        Button(action: onToggle) {
+            HStack(spacing: 10) {
+                // Emoji 图标
+                Text(timer.emoji)
+                    .font(.system(size: 16))
+                    .frame(width: 24)
 
-                // 显示类型和间隔/定点时间
-                HStack(spacing: 4) {
-                    if timer.isRunning {
-                        Circle()
-                            .fill(.green)
-                            .frame(width: 6, height: 6)
+                // 计时器名称和状态
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(timer.displayName)
+                        .font(.system(size: 13, weight: .medium))
+                        .lineLimit(1)
+
+                    // 显示类型和间隔/定点时间
+                    HStack(spacing: 4) {
+                        if timer.isRunning {
+                            Circle()
+                                .fill(.green)
+                                .frame(width: 6, height: 6)
+                        }
+                        Text(scheduleText)
+                            .font(.caption2)
+                            .foregroundStyle(timer.isRunning ? .green : .secondary)
                     }
-                    Text(scheduleText)
-                        .font(.caption2)
-                        .foregroundStyle(timer.isRunning ? .green : .secondary)
                 }
-            }
 
-            Spacer()
+                Spacer()
 
-            // 启停按钮
-            Button(action: onToggle) {
-                Image(systemName: timer.isRunning ? "stop.fill" : "play.fill")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 28, height: 28)
-                    .background(
-                        Circle()
-                            .fill(timer.isRunning ? Color.orange : Color.green)
-                    )
+                TimerToggleIndicator(
+                    isRunning: timer.isRunning,
+                    isEnabled: isEnabled,
+                    isHovered: isHovered
+                )
             }
-            .buttonStyle(PlainButtonStyle())
-            .disabled(!timer.isContentValid())
-            .opacity(timer.isContentValid() ? 1 : 0.5)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.primary.opacity(appearance.backgroundOpacity + 0.05))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(Color.primary.opacity(isHovered && isEnabled ? 0.12 : 0), lineWidth: 1)
+            )
+            .contentShape(Rectangle())
+            .opacity(appearance.foregroundOpacity)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color.primary.opacity(0.05))
-        )
+        .buttonStyle(PressablePlainButtonStyle())
+        .disabled(!isEnabled)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) {
+                isHovered = hovering
+            }
+            if hovering && isEnabled {
+                NSCursor.pointingHand.push()
+            } else if isEnabled {
+                NSCursor.pop()
+            }
+        }
+    }
+}
+
+struct TimerToggleIndicator: View {
+    let isRunning: Bool
+    let isEnabled: Bool
+    let isHovered: Bool
+
+    private var appearance: MenuBarControlAppearance {
+        MenuBarControlAppearance(isHovered: isHovered, isPressed: false, isEnabled: isEnabled)
+    }
+
+    private var tint: Color {
+        isRunning ? .orange : .green
+    }
+
+    var body: some View {
+        Image(systemName: isRunning ? "stop.fill" : "play.fill")
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 28, height: 28)
+            .background(
+                Circle()
+                    .fill(tint)
+            )
+            .overlay(
+                Circle()
+                    .stroke(Color.white.opacity(isHovered && isEnabled ? 0.45 : 0), lineWidth: 1)
+            )
+            .shadow(color: tint.opacity(isHovered && isEnabled ? 0.35 : 0), radius: 4, y: 1)
+            .scaleEffect(appearance.scale)
+            .opacity(appearance.foregroundOpacity)
+            .accessibilityHidden(true)
+    }
+}
+
+struct PressablePlainButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
     }
 }
 

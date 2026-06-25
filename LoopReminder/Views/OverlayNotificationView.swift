@@ -1,5 +1,11 @@
 import SwiftUI
 
+enum OverlayNotificationDismissReason {
+    case ignored
+    case completed
+    case missed
+}
+
 struct OverlayNotificationView: View {
     let emoji: String
     let title: String
@@ -25,7 +31,7 @@ struct OverlayNotificationView: View {
     let textColor: Color?
     let overlayMaterial: AppSettings.OverlayMaterial
     let liquidGlassStyle: AppSettings.LiquidGlassStyle
-    let onDismiss: (Bool) -> Void
+    let onDismiss: (OverlayNotificationDismissReason) -> Void
     
     @State private var opacity: Double = 1.0
     @State private var scale: Double = 1.0
@@ -82,14 +88,33 @@ struct OverlayNotificationView: View {
                                     .shadow(color: textShadowColor, radius: 9, x: 0, y: 0)
                             }
                             
-                            // 只在body不为空时显示
-                            if !trimmedBody.isEmpty {
-                                Text(trimmedBody)
-                                    .font(.system(size: bodyFontSize))
-                                    .monospacedDigit()
-                                    .foregroundColor(secondaryTextColor)
-                                    .lineLimit(2)
-                                    .shadow(color: textShadowColor, radius: 8, x: 0, y: 0)
+                            HStack(alignment: .center, spacing: 8) {
+                                if !trimmedBody.isEmpty {
+                                    Text(trimmedBody)
+                                        .font(.system(size: bodyFontSize))
+                                        .monospacedDigit()
+                                        .foregroundColor(secondaryTextColor)
+                                        .lineLimit(2)
+                                        .shadow(color: textShadowColor, radius: 8, x: 0, y: 0)
+                                }
+
+                                Spacer(minLength: 0)
+
+                                notificationActionButton(
+                                    systemImage: "xmark",
+                                    help: "忽略",
+                                    color: secondaryTextColor
+                                ) {
+                                    onDismiss(.ignored)
+                                }
+
+                                notificationActionButton(
+                                    systemImage: "checkmark",
+                                    help: "完成",
+                                    color: secondaryTextColor
+                                ) {
+                                    onDismiss(.completed)
+                                }
                             }
                         }
                         
@@ -168,8 +193,7 @@ struct OverlayNotificationView: View {
             // 只有卡片区域响应点击
             .contentShape(Rectangle())
             .onTapGesture {
-                onDismiss(true) // ... existing code ...
-                // true 表示用户手动点击关闭
+                onDismiss(.ignored)
             }
             // 根据position和padding计算对齐位置
             .padding(edgeInsetsForPosition())
@@ -326,9 +350,20 @@ struct OverlayNotificationView: View {
         }
         
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            onDismiss(false) // ... existing code ...
-            // false 表示通知自动消失
+            onDismiss(.missed)
         }
+    }
+
+    private func notificationActionButton(systemImage: String, help: String, color: Color, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: max(9, bodyFontSize - 1), weight: .semibold))
+                .foregroundStyle(color)
+                .frame(width: 18, height: 18)
+                .background(Circle().fill(.black.opacity(0.16)))
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
     
     // 根据position确定从哪个边进入/退出
