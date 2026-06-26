@@ -32,11 +32,19 @@ struct AnimationSettingsView: View {
                 .padding(.bottom, DesignTokens.Spacing.xl)
             }
         }
+        .onAppear {
+            sendStylePreviewNow()
+        }
         .onChange(of: animationSettingsHash) { _, _ in
-            scheduleTestNotification()
+            scheduleStylePreview()
         }
         .onDisappear {
             debounceTask?.cancel()
+            controller.closeStylePreview()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .settingsWindowWillClose)) { _ in
+            debounceTask?.cancel()
+            controller.closeStylePreview()
         }
     }
 
@@ -54,28 +62,24 @@ struct AnimationSettingsView: View {
 
     // MARK: - Actions
 
-    private func scheduleTestNotification() {
-        // 取消之前的任务
+    private func scheduleStylePreview() {
         debounceTask?.cancel()
-
-        // 延迟 0.5 秒后发送测试通知（防抖）
         debounceTask = Task {
-            try? await Task.sleep(nanoseconds: 500_000_000)
-
+            try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled else { return }
-
-            // 发送测试通知（自动触发，静音）
-            if let focusedTimer = getFocusedTimer(), focusedTimer.isContentValid() {
-                await controller.sendTest(for: focusedTimer, settings: settings, skipSound: true)
-            }
+            await sendStylePreview()
         }
     }
 
-    private func getFocusedTimer() -> TimerItem? {
-        if let focusedID = settings.focusedTimerID {
-            return settings.timers.first { $0.id == focusedID }
+    private func sendStylePreviewNow() {
+        debounceTask?.cancel()
+        Task {
+            await sendStylePreview()
         }
-        return settings.timers.first
+    }
+
+    private func sendStylePreview() async {
+        await controller.sendStylePreview(settings: settings)
     }
 
     // MARK: - Setting Sections

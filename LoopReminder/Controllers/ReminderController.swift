@@ -6,6 +6,8 @@ import os
 
 @MainActor
 final class ReminderController: ObservableObject {
+    private static let stylePreviewTimerID = UUID(uuidString: "00000000-0000-0000-0000-00000000A11E") ?? UUID()
+
     @Published var isResting: Bool = false
 
     // 多计时器支持
@@ -17,13 +19,13 @@ final class ReminderController: ObservableObject {
     private var scheduledTimers: [UUID: Timer] = [:] // 定点提醒的 Timer
 
     // 多通知管理
-    private var overlayWindows: [UUID: NSPanel] = [:] // 每个计时器的通知窗口
+    private var overlayWindows: [UUID: NSWindow] = [:] // 每个计时器的通知窗口
     private var overlayEventIDs: [UUID: UUID] = [:]
     private var notificationOrder: [UUID] = [] // 通知显示顺序（从上到下）
     private var windowScreens: [UUID: NSScreen] = [:] // 记录每个窗口所在的屏幕
     
     private let center = UNUserNotificationCenter.current()
-    private var overlayWindow: NSPanel?  // 使用 NSPanel 替代 NSWindow 以支持全屏模式
+    private var overlayWindow: NSWindow?  // 使用 NSWindow 基类以支持材质宿主 A/B 实验
     private weak var settingsRef: AppSettings?
     private var lockObserver: NSObjectProtocol?
     private var unlockObserver: NSObjectProtocol?
@@ -61,6 +63,10 @@ final class ReminderController: ObservableObject {
         let textColor: Color?
         let overlayMaterial: AppSettings.OverlayMaterial
         let liquidGlassStyle: AppSettings.LiquidGlassStyle
+        let glassTintMode: AppSettings.OverlayGlassTintExperiment
+        let glassTintColor: Color
+        let glassTintAlpha: Double
+        let glassTextColorMode: AppSettings.OverlayGlassTextColorMode
     }
 
     func ensurePermission() async {
@@ -402,6 +408,74 @@ final class ReminderController: ObservableObject {
         await sendNotification(for: timer, settings: settings, isTest: true, content: testContent, triggerRestOnDismiss: false, skipSound: skipSound)
     }
 
+    func sendStylePreview(settings: AppSettings) async {
+        let previewTimer = TimerItem(
+            id: Self.stylePreviewTimerID,
+            emoji: "✨",
+            title: "外观预览",
+            body: "这是一条专用测试通知",
+            intervalSeconds: 5,
+            customColor: nil
+        )
+
+        let previewContent = NotificationContent(
+            emoji: previewTimer.emoji,
+            title: "[外观预览] \(previewTimer.title)",
+            body: previewTimer.body
+        )
+
+        let baseStyle = buildOverlayStyle(timer: previewTimer, settings: settings)
+        let previewStyle = OverlayStyle(
+            backgroundColor: baseStyle.backgroundColor,
+            backgroundOpacity: baseStyle.backgroundOpacity,
+            stayDuration: 24 * 60 * 60,
+            enableFadeOut: false,
+            fadeOutDelay: 0,
+            fadeOutDuration: 0,
+            titleFontSize: baseStyle.titleFontSize,
+            bodyFontSize: baseStyle.bodyFontSize,
+            iconSize: baseStyle.iconSize,
+            cornerRadius: baseStyle.cornerRadius,
+            contentSpacing: baseStyle.contentSpacing,
+            useBlur: baseStyle.useBlur,
+            blurIntensity: baseStyle.blurIntensity,
+            overlayWidth: baseStyle.overlayWidth,
+            overlayHeight: baseStyle.overlayHeight,
+            animationStyle: baseStyle.animationStyle,
+            position: baseStyle.position,
+            padding: baseStyle.padding,
+            textColor: baseStyle.textColor,
+            overlayMaterial: baseStyle.overlayMaterial,
+            liquidGlassStyle: baseStyle.liquidGlassStyle,
+            glassTintMode: baseStyle.glassTintMode,
+            glassTintColor: baseStyle.glassTintColor,
+            glassTintAlpha: baseStyle.glassTintAlpha,
+            glassTextColorMode: baseStyle.glassTextColorMode
+        )
+
+        logger.log("[材质排查] 发送外观预览通知: style=\(settings.liquidGlassStyle.displayName), material=\(settings.overlayMaterial.rawValue)")
+        await sendNotification(
+            for: previewTimer,
+            settings: settings,
+            isTest: true,
+            content: previewContent,
+            overlayStyle: previewStyle,
+            triggerRestOnDismiss: false,
+            skipSound: true
+        )
+    }
+
+    func closeStylePreview() {
+        let timerID = Self.stylePreviewTimerID
+        overlayEventIDs.removeValue(forKey: timerID)
+        windowScreens.removeValue(forKey: timerID)
+        notificationOrder.removeAll { $0 == timerID }
+
+        guard let window = overlayWindows.removeValue(forKey: timerID) else { return }
+        window.orderOut(nil)
+        window.close()
+    }
+
     private func sendNotification(for timer: TimerItem, settings: AppSettings, isTest: Bool = false, content: NotificationContent? = nil, overlayStyle: OverlayStyle? = nil, triggerRestOnDismiss: Bool = true, skipSound: Bool = false) async {
         if !isTest {
             // 更新计时器的 lastFireEpoch
@@ -523,7 +597,11 @@ final class ReminderController: ObservableObject {
             padding: settings.overlayEdgePadding,
             textColor: nil,
             overlayMaterial: settings.overlayMaterial,
-            liquidGlassStyle: settings.liquidGlassStyle
+            liquidGlassStyle: settings.liquidGlassStyle,
+            glassTintMode: settings.overlayGlassTintModeExperiment,
+            glassTintColor: settings.overlayGlassTintColor,
+            glassTintAlpha: settings.overlayGlassTintAlpha,
+            glassTextColorMode: settings.overlayGlassTextColorMode
         )
     }
 
@@ -571,7 +649,11 @@ final class ReminderController: ObservableObject {
             padding: settings.overlayEdgePadding,
             textColor: textColor,
             overlayMaterial: settings.overlayMaterial,
-            liquidGlassStyle: settings.liquidGlassStyle
+            liquidGlassStyle: settings.liquidGlassStyle,
+            glassTintMode: settings.overlayGlassTintModeExperiment,
+            glassTintColor: settings.overlayGlassTintColor,
+            glassTintAlpha: settings.overlayGlassTintAlpha,
+            glassTextColorMode: settings.overlayGlassTextColorMode
         )
     }
 
@@ -844,26 +926,13 @@ final class ReminderController: ObservableObject {
             )
         }
         
-        let window = NSPanel(
-            contentRect: windowRect,
-            styleMask: [.borderless, .nonactivatingPanel],  // 使用 nonactivatingPanel 以不激活窗口
-            backing: .buffered,
-            defer: false
+        let window = makeOverlayWindow(contentRect: windowRect, settings: settings)
+
+        logger.log(
+            """
+            [材质排查] 创建真实通知窗口: host=\(overlayWindowHostDescription(settings: settings)), class=\(String(describing: type(of: window))), timer=\(timer.displayName), rect=\(Int(windowRect.width))x\(Int(windowRect.height))@(\(Int(windowRect.minX)),\(Int(windowRect.minY))), isOpaque=\(window.isOpaque), background=\(String(describing: window.backgroundColor)), level=\(window.level.rawValue), hasShadow=\(window.hasShadow), styleMask=\(window.styleMask.rawValue), material=\(style.overlayMaterial.rawValue), liquidStyle=\(style.liquidGlassStyle.displayName), tintMode=\(style.glassTintMode.displayName), tintAlpha=\(String(format: "%.3f", style.glassTintAlpha)), textColor=\(style.glassTextColorMode.displayName), overlayOpacity=\(String(format: "%.2f", style.backgroundOpacity)), useBlur=\(style.useBlur), blurIntensity=\(String(format: "%.2f", style.blurIntensity)), cornerRadius=\(String(format: "%.1f", style.cornerRadius))
+            """
         )
-        
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        // 使用 popUpMenu 级别确保在全屏应用上方显示
-        window.level = .popUpMenu
-        // 配置窗口行为：可加入所有空间、在全屏应用上方显示
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        window.ignoresMouseEvents = false
-        window.isReleasedWhenClosed = false
-        // 确保窗口不会被激活打断用户操作
-        window.hidesOnDeactivate = false
-        // 关键：设置为浮动面板，允许在全屏应用上方显示
-        window.isFloatingPanel = true
-        window.becomesKeyOnlyIfNeeded = true
         
         let overlayView = OverlayNotificationView(
             emoji: content.emoji,
@@ -890,6 +959,10 @@ final class ReminderController: ObservableObject {
             textColor: style.textColor,
             overlayMaterial: style.overlayMaterial,
             liquidGlassStyle: style.liquidGlassStyle,
+            glassTintMode: style.glassTintMode,
+            glassTintColor: style.glassTintColor,
+            glassTintAlpha: style.glassTintAlpha,
+            glassTextColorMode: style.glassTextColorMode,
             onDismiss: { [weak self, weak window, timerID = timer.id] reason in
                 Task {
                     guard let self, let w = window else { return }
@@ -959,7 +1032,18 @@ final class ReminderController: ObservableObject {
             }
         )
         
-        window.contentView = NSHostingView(rootView: overlayView)
+        let hostingView = NSHostingView(rootView: overlayView)
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+        if #available(macOS 14, *) {
+            hostingView.layer?.wantsExtendedDynamicRangeContent = true
+        }
+        window.contentView = hostingView
+        #if DEBUG
+        if settings.overlayWindowHostExperiment == .focusLiteWindow {
+            window.makeFirstResponder(hostingView)
+        }
+        #endif
         // 使用 orderFrontRegardless 确保窗口显示在最前方，即使在全屏模式下
         window.orderFrontRegardless()
         
@@ -970,6 +1054,102 @@ final class ReminderController: ObservableObject {
         }
         self.notificationOrder.append(timer.id)
         self.windowScreens[timer.id] = screen // 记录窗口所在的屏幕
+    }
+
+    private func makeOverlayWindow(contentRect: NSRect, settings: AppSettings) -> NSWindow {
+        #if DEBUG
+        switch settings.overlayWindowHostExperiment {
+        case .currentPanel:
+            return makeOverlayPanel(
+                contentRect: contentRect,
+                level: .popUpMenu,
+                hasShadow: true
+            )
+        case .panelFloatingLevel:
+            return makeOverlayPanel(
+                contentRect: contentRect,
+                level: .floating,
+                hasShadow: true
+            )
+        case .windowFloating:
+            return makeOverlayPlainWindow(
+                contentRect: contentRect,
+                level: .floating,
+                hasShadow: true
+            )
+        case .focusLiteWindow:
+            return makeOverlayFocusLiteWindow(
+                contentRect: contentRect,
+                level: .floating,
+                hasShadow: true
+            )
+        }
+        #else
+        return makeOverlayPanel(
+            contentRect: contentRect,
+            level: .popUpMenu,
+            hasShadow: true
+        )
+        #endif
+    }
+
+    private func makeOverlayPanel(contentRect: NSRect, level: NSWindow.Level, hasShadow: Bool) -> NSPanel {
+        let panel = NSPanel(
+            contentRect: contentRect,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        configureOverlayWindow(panel, level: level, hasShadow: hasShadow)
+        panel.hidesOnDeactivate = false
+        panel.isFloatingPanel = true
+        panel.becomesKeyOnlyIfNeeded = true
+        return panel
+    }
+
+    private func makeOverlayPlainWindow(contentRect: NSRect, level: NSWindow.Level, hasShadow: Bool) -> NSWindow {
+        let window = NSWindow(
+            contentRect: contentRect,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        configureOverlayWindow(window, level: level, hasShadow: hasShadow)
+        return window
+    }
+
+    #if DEBUG
+    private func makeOverlayFocusLiteWindow(contentRect: NSRect, level: NSWindow.Level, hasShadow: Bool) -> NSWindow {
+        let window = OverlayFocusLiteExperimentWindow(
+            contentRect: contentRect,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        configureOverlayWindow(window, level: level, hasShadow: hasShadow)
+        window.isMovableByWindowBackground = true
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        return window
+    }
+    #endif
+
+    private func configureOverlayWindow(_ window: NSWindow, level: NSWindow.Level, hasShadow: Bool) {
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.level = level
+        window.hasShadow = hasShadow
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.ignoresMouseEvents = false
+        window.isReleasedWhenClosed = false
+    }
+
+    private func overlayWindowHostDescription(settings: AppSettings) -> String {
+        #if DEBUG
+        return "\(settings.overlayWindowHostExperiment.displayName) (\(settings.overlayWindowHostExperiment.detail))"
+        #else
+        return "Release 当前面板 (NSPanel + nonactivating + popUpMenu)"
+        #endif
     }
     
     // 重新布局所有通知（当有通知消失时，其他通知上移）
@@ -1063,3 +1243,10 @@ final class ReminderController: ObservableObject {
         }
     }
 }
+
+#if DEBUG
+private final class OverlayFocusLiteExperimentWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+#endif

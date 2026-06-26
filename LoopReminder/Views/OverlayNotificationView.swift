@@ -1,4 +1,39 @@
 import SwiftUI
+import AppKit
+
+@MainActor
+private enum GlassDebugLog {
+    static func log(_ message: String) {
+        EventLogger.shared.log("[材质排查] \(message)")
+    }
+}
+
+private func setGlassVariant(_ view: NSView, _ value: Int) {
+    let selector = NSSelectorFromString("set_variant:")
+    guard view.responds(to: selector) else { return }
+    typealias Fn = @convention(c) (AnyObject, Selector, Int) -> Void
+    let imp = view.method(for: selector)
+    let fn = unsafeBitCast(imp, to: Fn.self)
+    fn(view, selector, value)
+}
+
+private func setGlassScrimState(_ view: NSView, _ value: Bool) {
+    let selector = NSSelectorFromString("set_scrimState:")
+    guard view.responds(to: selector) else { return }
+    typealias Fn = @convention(c) (AnyObject, Selector, Bool) -> Void
+    let imp = view.method(for: selector)
+    let fn = unsafeBitCast(imp, to: Fn.self)
+    fn(view, selector, value)
+}
+
+private func setGlassSubduedState(_ view: NSView, _ value: Bool) {
+    let selector = NSSelectorFromString("set_subduedState:")
+    guard view.responds(to: selector) else { return }
+    typealias Fn = @convention(c) (AnyObject, Selector, Bool) -> Void
+    let imp = view.method(for: selector)
+    let fn = unsafeBitCast(imp, to: Fn.self)
+    fn(view, selector, value)
+}
 
 enum OverlayNotificationDismissReason {
     case ignored
@@ -31,6 +66,10 @@ struct OverlayNotificationView: View {
     let textColor: Color?
     let overlayMaterial: AppSettings.OverlayMaterial
     let liquidGlassStyle: AppSettings.LiquidGlassStyle
+    var glassTintMode: AppSettings.OverlayGlassTintExperiment = .focusLiteDefault
+    var glassTintColor: Color = .white
+    var glassTintAlpha: Double = 0.618
+    var glassTextColorMode: AppSettings.OverlayGlassTextColorMode = .automatic
     let onDismiss: (OverlayNotificationDismissReason) -> Void
     
     @State private var opacity: Double = 1.0
@@ -44,9 +83,10 @@ struct OverlayNotificationView: View {
             let isLiquidMaterial = overlayMaterial == .liquidGlass
             let prefersHighContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
             let prefersReducedTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-            let primaryTextColor = resolvedPrimaryTextColor(isLiquidMaterial: isLiquidMaterial, prefersHighContrast: prefersHighContrast)
-            let secondaryTextColor = resolvedSecondaryTextColor(isLiquidMaterial: isLiquidMaterial, prefersHighContrast: prefersHighContrast)
-            let textShadowColor = resolvedTextShadowColor(isLiquidMaterial: isLiquidMaterial, prefersHighContrast: prefersHighContrast)
+            let glassTextColor = resolvedGlassTextColor()
+            let primaryTextColor: Color? = isLiquidMaterial ? glassTextColor : resolvedPrimaryTextColor(prefersHighContrast: prefersHighContrast)
+            let secondaryTextColor: Color? = isLiquidMaterial ? glassTextColor : resolvedSecondaryTextColor(prefersHighContrast: prefersHighContrast)
+            let textShadowColor: Color = isLiquidMaterial ? .clear : resolvedTextShadowColor(prefersHighContrast: prefersHighContrast)
             
             // 处理字段显示逻辑
             let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -103,7 +143,8 @@ struct OverlayNotificationView: View {
                                 notificationActionButton(
                                     systemImage: "xmark",
                                     help: "忽略",
-                                    color: secondaryTextColor
+                                    color: secondaryTextColor,
+                                    useBackground: !isLiquidMaterial
                                 ) {
                                     onDismiss(.ignored)
                                 }
@@ -111,7 +152,8 @@ struct OverlayNotificationView: View {
                                 notificationActionButton(
                                     systemImage: "checkmark",
                                     help: "完成",
-                                    color: secondaryTextColor
+                                    color: secondaryTextColor,
+                                    useBackground: !isLiquidMaterial
                                 ) {
                                     onDismiss(.completed)
                                 }
@@ -125,66 +167,21 @@ struct OverlayNotificationView: View {
             .padding(.vertical, overlayWidth < 150 ? 10 : 20)
             .padding(.horizontal, overlayWidth < 150 ? 8 : 20)
             .frame(width: overlayWidth, height: overlayHeight)
-            .background(
-                Group {
-                    switch overlayMaterial {
-                    case .basic:
-                        ZStack {
-                            if useBlur {
-                                // 模糊背景
-                                VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
-                                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-                                // 第一层颜色叠加（基础颜色层）
-                                RoundedRectangle(cornerRadius: cornerRadius)
-                                    .fill(backgroundColor.opacity(backgroundOpacity * 0.5 * backgroundOpacityMultiplier))
-                                // 第二层颜色叠加（强化颜色层）
-                                RoundedRectangle(cornerRadius: cornerRadius)
-                                    .fill(backgroundColor.opacity(backgroundOpacity * blurIntensity * 0.6 * backgroundOpacityMultiplier))
-                            } else {
-                                // 纯色背景
-                                RoundedRectangle(cornerRadius: cornerRadius)
-                                    .fill(backgroundColor.opacity(backgroundOpacity * backgroundOpacityMultiplier))
-                            }
-                        }
-                        .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
-                    case .liquidGlass:
-                        // 使用 SwiftUI 原生 glassEffect modifier
-                        if #available(macOS 26.0, *) {
-                            ZStack {
-                                if prefersReducedTransparency {
-                                    RoundedRectangle(cornerRadius: cornerRadius)
-                                        .fill(backgroundColor.opacity(max(0.45, backgroundOpacity * 0.7) * backgroundOpacityMultiplier))
-                                } else {
-                                    // 使用原生 SwiftUI glassEffect
-                                    let glass = (liquidGlassStyle == .clear ? Glass.clear : Glass.regular)
-
-                                    RoundedRectangle(cornerRadius: cornerRadius)
-                                        .fill(.clear)
-                                        .glassEffect(glass, in: RoundedRectangle(cornerRadius: cornerRadius))
-
-                                    // 在玻璃效果上叠加颜色层来实现着色
-                                    RoundedRectangle(cornerRadius: cornerRadius)
-                                        .fill(backgroundColor.opacity(backgroundOpacity * 0.35 * backgroundOpacityMultiplier))
-                                }
-
-                                RoundedRectangle(cornerRadius: cornerRadius)
-                                    .stroke(.white.opacity(0.42 * backgroundOpacityMultiplier), lineWidth: 0.8)
-                            }
-                            .shadow(color: .black.opacity(0.2), radius: 12, x: 0, y: 6)
-                        } else {
-                            // 旧系统回退
-                            ZStack {
-                                VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
-                                    .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-                                RoundedRectangle(cornerRadius: cornerRadius)
-                                    .fill(backgroundColor.opacity(backgroundOpacity * 0.28 * backgroundOpacityMultiplier))
-                                RoundedRectangle(cornerRadius: cornerRadius)
-                                    .stroke(.white.opacity(0.35 * backgroundOpacityMultiplier), lineWidth: 0.8)
-                            }
-                            .shadow(color: .black.opacity(0.24), radius: 12, x: 0, y: 6)
-                        }
-                    }
-                }
+            .modifier(
+                OverlayNotificationMaterialModifier(
+                    overlayMaterial: overlayMaterial,
+                    liquidGlassStyle: liquidGlassStyle,
+                    backgroundColor: backgroundColor,
+                    backgroundOpacity: backgroundOpacity,
+                    backgroundOpacityMultiplier: backgroundOpacityMultiplier,
+                    useBlur: useBlur,
+                    blurIntensity: blurIntensity,
+                    cornerRadius: cornerRadius,
+                    prefersReducedTransparency: prefersReducedTransparency,
+                    glassTintMode: glassTintMode,
+                    glassTintColor: glassTintColor,
+                    glassTintAlpha: glassTintAlpha
+                )
             )
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .opacity(opacity)
@@ -199,6 +196,12 @@ struct OverlayNotificationView: View {
             .padding(edgeInsetsForPosition())
             .frame(width: geometry.size.width, height: geometry.size.height, alignment: alignmentForPosition())
             .onAppear {
+                logMaterialAppearance(
+                    containerSize: geometry.size,
+                    isLiquidMaterial: isLiquidMaterial,
+                    prefersHighContrast: prefersHighContrast,
+                    prefersReducedTransparency: prefersReducedTransparency
+                )
                 applyEntryAnimation(containerSize: geometry.size)
                 startExitTimer(containerSize: geometry.size)
             }
@@ -354,13 +357,13 @@ struct OverlayNotificationView: View {
         }
     }
 
-    private func notificationActionButton(systemImage: String, help: String, color: Color, action: @escaping () -> Void) -> some View {
+    private func notificationActionButton(systemImage: String, help: String, color: Color?, useBackground: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemImage)
                 .font(.system(size: max(9, bodyFontSize - 1), weight: .semibold))
-                .foregroundStyle(color)
+                .foregroundStyle(color ?? .primary)
                 .frame(width: 18, height: 18)
-                .background(Circle().fill(.black.opacity(0.16)))
+                .background(Circle().fill(useBackground ? .black.opacity(0.16) : .clear))
         }
         .buttonStyle(.plain)
         .help(help)
@@ -390,39 +393,311 @@ struct OverlayNotificationView: View {
         case fromBottom
     }
     
-    private func resolvedPrimaryTextColor(isLiquidMaterial: Bool, prefersHighContrast: Bool) -> Color {
-        if isLiquidMaterial {
-            // 液态玻璃模式：根据系统外观选择颜色
-            let isDarkMode = isDarkModeEnabled()
-            return isDarkMode ? .white : .black
-        }
+    private func resolvedPrimaryTextColor(prefersHighContrast: Bool) -> Color {
         // 基本材质：使用白色
         return .white
     }
 
-    private func resolvedSecondaryTextColor(isLiquidMaterial: Bool, prefersHighContrast: Bool) -> Color {
-        if isLiquidMaterial {
-            // 液态玻璃模式：根据系统外观选择颜色
-            let isDarkMode = isDarkModeEnabled()
-            return isDarkMode ? .white.opacity(0.9) : .black.opacity(0.85)
-        }
+    private func resolvedSecondaryTextColor(prefersHighContrast: Bool) -> Color {
         // 基本材质：使用白色
         return .white.opacity(0.95)
     }
 
-    private func resolvedTextShadowColor(isLiquidMaterial: Bool, prefersHighContrast: Bool) -> Color {
-        if isLiquidMaterial {
-            // 液态玻璃模式：根据系统外观选择阴影颜色
-            let isDarkMode = isDarkModeEnabled()
-            return isDarkMode ? .black.opacity(prefersHighContrast ? 0.5 : 0.3) : .white.opacity(prefersHighContrast ? 0.4 : 0.2)
+    private func resolvedGlassTextColor() -> Color? {
+        switch glassTextColorMode {
+        case .automatic:
+            return nil
+        case .black:
+            return .black
+        case .white:
+            return .white
         }
+    }
+
+    private func resolvedTextShadowColor(prefersHighContrast: Bool) -> Color {
         return .black.opacity(prefersHighContrast ? 0.78 : 0.62)
     }
 
-    private func isDarkModeEnabled() -> Bool {
-        guard let appearance = NSApp?.effectiveAppearance else { return true }
-        let bestMatch = appearance.bestMatch(from: [.darkAqua, .aqua])
-        return bestMatch == .darkAqua
+    private func logMaterialAppearance(
+        containerSize: CGSize,
+        isLiquidMaterial: Bool,
+        prefersHighContrast: Bool,
+        prefersReducedTransparency: Bool
+    ) {
+        GlassDebugLog.log(
+            """
+            OverlayNotificationView出现: material=\(overlayMaterial.rawValue), liquidStyle=\(liquidGlassStyle.displayName), isLiquid=\(isLiquidMaterial), size=\(Int(overlayWidth))x\(Int(overlayHeight)), container=\(Int(containerSize.width))x\(Int(containerSize.height)), cornerRadius=\(String(format: "%.1f", cornerRadius)), opacity=\(String(format: "%.2f", backgroundOpacity)), useBlur=\(useBlur), blurIntensity=\(String(format: "%.2f", blurIntensity)), reducedTransparency=\(prefersReducedTransparency), highContrast=\(prefersHighContrast)
+            """
+        )
+        if isLiquidMaterial {
+            GlassDebugLog.log("液态玻璃路径: macOS 26 使用 NSGlassEffectView.contentView；tintMode=\(glassTintMode.displayName), tintAlpha=\(String(format: "%.3f", glassTintAlpha)), textColor=\(glassTextColorMode.displayName)；overlayOpacity/useBlur/blurIntensity 不参与当前液态玻璃背景。")
+        }
+    }
+}
+
+private struct OverlayNotificationMaterialModifier: ViewModifier {
+    let overlayMaterial: AppSettings.OverlayMaterial
+    let liquidGlassStyle: AppSettings.LiquidGlassStyle
+    let backgroundColor: Color
+    let backgroundOpacity: Double
+    let backgroundOpacityMultiplier: Double
+    let useBlur: Bool
+    let blurIntensity: Double
+    let cornerRadius: Double
+    let prefersReducedTransparency: Bool
+    let glassTintMode: AppSettings.OverlayGlassTintExperiment
+    let glassTintColor: Color
+    let glassTintAlpha: Double
+
+    func body(content: Content) -> some View {
+        switch overlayMaterial {
+        case .basic:
+            content
+                .background(basicBackground)
+                .shadow(color: .black.opacity(0.3), radius: 10, x: 0, y: 5)
+        case .liquidGlass:
+            liquidGlassContent(content)
+        }
+    }
+
+    @ViewBuilder
+    private var basicBackground: some View {
+        ZStack {
+            if useBlur {
+                VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
+                    .clipShape(shape)
+                shape
+                    .fill(backgroundColor.opacity(backgroundOpacity * 0.5 * backgroundOpacityMultiplier))
+                shape
+                    .fill(backgroundColor.opacity(backgroundOpacity * blurIntensity * 0.6 * backgroundOpacityMultiplier))
+            } else {
+                shape
+                    .fill(backgroundColor.opacity(backgroundOpacity * backgroundOpacityMultiplier))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func liquidGlassContent(_ content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            NSGlassEffectHostView(
+                content: content,
+                cornerRadius: cornerRadius,
+                style: liquidGlassStyle,
+                backgroundColor: backgroundColor,
+                tintMode: glassTintMode,
+                tintColor: glassTintColor,
+                tintAlpha: glassTintAlpha
+            )
+            .shadow(color: .black.opacity(0.2), radius: 12, x: 0, y: 6)
+        } else {
+            content
+                .background(
+                    ZStack {
+                        VisualEffectBlur(material: .hudWindow, blendingMode: .behindWindow)
+                            .clipShape(shape)
+                        shape
+                            .fill(backgroundColor.opacity(backgroundOpacity * 0.28 * backgroundOpacityMultiplier))
+                    }
+                )
+                .overlay(liquidGlassStroke(opacity: 0.35))
+                .shadow(color: .black.opacity(0.24), radius: 12, x: 0, y: 6)
+        }
+    }
+
+    private var shape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: cornerRadius)
+    }
+
+    private func liquidGlassStroke(opacity: Double) -> some View {
+        shape
+            .stroke(.white.opacity(opacity * backgroundOpacityMultiplier), lineWidth: 0.8)
+    }
+}
+
+@available(macOS 26.0, *)
+private struct NSGlassEffectHostView<Content: View>: NSViewRepresentable {
+    let content: Content
+    let cornerRadius: Double
+    let style: AppSettings.LiquidGlassStyle
+    let backgroundColor: Color
+    let tintMode: AppSettings.OverlayGlassTintExperiment
+    let tintColor: Color
+    let tintAlpha: Double
+
+    func makeNSView(context: Context) -> NSGlassEffectView {
+        let glassView = NSGlassEffectView()
+        applyConfiguration(to: glassView)
+        glassView.contentView = makeHostingView(in: glassView)
+        logGlassViewState(glassView, phase: "makeNSView")
+        return glassView
+    }
+
+    func updateNSView(_ glassView: NSGlassEffectView, context: Context) {
+        if let hostingView = glassView.contentView as? NSHostingView<Content> {
+            hostingView.rootView = content
+        } else {
+            glassView.contentView = makeHostingView(in: glassView)
+        }
+        applyConfiguration(to: glassView)
+        logGlassViewState(glassView, phase: "updateNSView")
+    }
+
+    private func makeHostingView(in glassView: NSGlassEffectView) -> NSHostingView<Content> {
+        let hostingView = NSHostingView(rootView: content)
+        hostingView.frame = glassView.bounds
+        hostingView.autoresizingMask = [.width, .height]
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+        return hostingView
+    }
+
+    private func applyConfiguration(to glassView: NSGlassEffectView) {
+        glassView.cornerRadius = cornerRadius
+        glassView.tintColor = resolvedTintColor
+        glassView.style = style.nsGlassStyle
+        applyPrivateGlassConfiguration(to: glassView)
+    }
+
+    private var resolvedTintColor: NSColor? {
+        switch tintMode {
+        case .focusLiteDefault:
+            guard style.baseGlassStyle == .clear else { return nil }
+            return systemAppearanceTint(alpha: 0.618)
+        case .off:
+            return nil
+        case .systemDefault:
+            return systemAppearanceTint(alpha: clampedTintAlpha)
+        case .overlayColor:
+            return nsColor(from: backgroundColor, alpha: clampedTintAlpha)
+        case .custom:
+            return nsColor(from: tintColor, alpha: clampedTintAlpha)
+        }
+    }
+
+    private var clampedTintAlpha: Double {
+        min(max(tintAlpha, 0), 1)
+    }
+
+    private func systemAppearanceTint(alpha: Double) -> NSColor {
+        let isDarkMode = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        let base = isDarkMode ? NSColor.black : NSColor.white
+        return base.withAlphaComponent(alpha)
+    }
+
+    private func nsColor(from color: Color, alpha: Double) -> NSColor {
+        let components = color.components()
+        return NSColor(
+            calibratedRed: components.red,
+            green: components.green,
+            blue: components.blue,
+            alpha: alpha
+        )
+    }
+
+    private func applyPrivateGlassConfiguration(to glassView: NSGlassEffectView) {
+        if style.variantValue != 0 {
+            setGlassVariant(glassView, style.variantValue)
+        }
+        setGlassScrimState(glassView, style.scrimState)
+        setGlassSubduedState(glassView, style.subduedState)
+    }
+
+    private func logGlassViewState(_ glassView: NSGlassEffectView, phase: String) {
+        GlassDebugLog.log(
+            """
+            NSGlassEffectView.\(phase): style=\(style.displayName), base=\(style.baseGlassStyle.displayName), nsStyle=\(style.nsGlassStyle == .regular ? "regular" : "clear"), tintMode=\(tintMode.displayName), tint=\(describeColor(resolvedTintColor)), cornerRadius=\(String(format: "%.1f", cornerRadius)), variant=\(style.variantValue), scrim=\(style.scrimState), subdued=\(style.subduedState), selectors(variant/scrim/subdued)=\(glassView.responds(to: NSSelectorFromString("set_variant:")))/\(glassView.responds(to: NSSelectorFromString("set_scrimState:")))/\(glassView.responds(to: NSSelectorFromString("set_subduedState:"))), frame=\(Int(glassView.frame.width))x\(Int(glassView.frame.height)), contentView=\(glassView.contentView.map { String(describing: type(of: $0)) } ?? "nil")
+            """
+        )
+    }
+
+    private func describeColor(_ color: NSColor?) -> String {
+        guard let color else { return "nil" }
+        if let rgb = color.usingColorSpace(.sRGB) {
+            return String(
+                format: "rgba(%.3f, %.3f, %.3f, %.3f)",
+                rgb.redComponent,
+                rgb.greenComponent,
+                rgb.blueComponent,
+                rgb.alphaComponent
+            )
+        }
+        return "colorspace=\(color.colorSpace.localizedName ?? "unknown"), alpha=\(String(format: "%.3f", color.alphaComponent))"
+    }
+}
+
+@available(macOS 26.0, *)
+private extension AppSettings.LiquidGlassStyle {
+    var baseGlassStyle: AppSettings.LiquidGlassStyle {
+        switch self {
+        case .regular:
+            return .regular
+        default:
+            return .clear
+        }
+    }
+
+    var nsGlassStyle: NSGlassEffectView.Style {
+        baseGlassStyle == .regular ? .regular : .clear
+    }
+
+    var variantValue: Int {
+        switch self {
+        case .regular, .clear:
+            return 0
+        case .dock:
+            return 3
+        case .appIcons:
+            return 4
+        case .widgets:
+            return 5
+        case .text:
+            return 6
+        case .avPlayer:
+            return 7
+        case .faceTime:
+            return 8
+        case .controlCenter:
+            return 9
+        case .notificationCenter:
+            return 10
+        case .monogram:
+            return 11
+        case .bubbles:
+            return 12
+        case .identity:
+            return 13
+        case .focusBorder:
+            return 14
+        case .focusPlatter:
+            return 15
+        case .keyboard:
+            return 16
+        case .sidebar:
+            return 17
+        case .abuttedSidebar:
+            return 18
+        case .inspector:
+            return 19
+        case .control:
+            return 20
+        case .loupe:
+            return 21
+        case .slider:
+            return 22
+        case .camera:
+            return 23
+        case .cartouchePopover:
+            return 24
+        }
+    }
+
+    var scrimState: Bool {
+        false
+    }
+
+    var subduedState: Bool {
+        false
     }
 }
 

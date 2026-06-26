@@ -42,7 +42,7 @@
       "b": 0.5
     },
     "material": "基本",
-    "liquidGlassStyle": "常规"
+    "liquidGlassStyle": "regular"
   },
   "animation": {
     "style": "缩放"

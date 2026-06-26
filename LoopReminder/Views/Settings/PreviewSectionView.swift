@@ -160,7 +160,7 @@ struct PreviewSectionView: View {
                             let heightScale = notifHeight > screenHeight ? screenHeight / notifHeight : 1.0
                             let scale = min(widthScale, heightScale, 1.0)
                             
-                            let backgroundColor = focusedTimer.customColor?.toColor() ?? settings.getOverlayColor()
+                            let backgroundColor = settings.getOverlayColor()
                             
                             ZStack {
                                 OverlayNotificationView(
@@ -188,6 +188,10 @@ struct PreviewSectionView: View {
                                     textColor: nil,
                                     overlayMaterial: settings.overlayMaterial,
                                     liquidGlassStyle: settings.liquidGlassStyle,
+                                    glassTintMode: settings.overlayGlassTintModeExperiment,
+                                    glassTintColor: settings.overlayGlassTintColor,
+                                    glassTintAlpha: settings.overlayGlassTintAlpha,
+                                    glassTextColorMode: settings.overlayGlassTextColorMode,
                                     onDismiss: { _ in }
                                 )
                             }
@@ -197,6 +201,13 @@ struct PreviewSectionView: View {
                 )
         }
         .frame(width: 340, height: 240)
+        .onAppear {
+            EventLogger.shared.log(
+                """
+                [材质排查] 设置页预览容器出现: 预览路径包含 VisualEffectTransparentView + 黑色显示器外框，材质观感可能不同于真实透明 NSPanel；material=\(settings.overlayMaterial.rawValue), liquidStyle=\(settings.liquidGlassStyle.displayName), overlayOpacity=\(String(format: "%.2f", settings.overlayOpacity)), useBlur=\(settings.overlayUseBlur), blurIntensity=\(String(format: "%.2f", settings.overlayBlurIntensity))
+                """
+            )
+        }
     }
     
     // MARK: - Test Button

@@ -1415,7 +1415,7 @@ private struct ColorOverrideEditor: View {
     }
 }
 
-private struct CustomColorPalettePopover: View {
+struct CustomColorPalettePopover: View {
     @Binding var color: Color
     let onChange: (Color) -> Void
     let onDone: () -> Void
@@ -2391,7 +2391,7 @@ private final class KeyCaptureNSView: NSView {
     }
 }
 
-private struct FlowLayout: Layout {
+struct FlowLayout: Layout {
     var spacing: CGFloat
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
