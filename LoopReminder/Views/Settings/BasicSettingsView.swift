@@ -9,7 +9,7 @@ struct BasicSettingsView: View {
             // 页面标题 - 固定
             PageHeader(
                 icon: "gear",
-                iconColor: .blue,
+                iconColor: .accentColor,
                 title: "基本设置",
                 subtitle: "配置一些启动项"
             )
@@ -34,7 +34,7 @@ struct BasicSettingsView: View {
                 // 开机启动
                 SettingToggleRow(
                     icon: "power.circle.fill",
-                    iconColor: .orange,
+                    iconColor: .accentColor,
                     title: "开机启动",
                     description: "系统启动时自动运行此应用"
                 ) {
@@ -46,7 +46,7 @@ struct BasicSettingsView: View {
                 // 静默启动
                 SettingToggleRow(
                     icon: "eye.slash.fill",
-                    iconColor: .gray,
+                    iconColor: .accentColor,
                     title: "静默启动",
                     description: "启动时不自动打开设置页面"
                 ) {
@@ -60,7 +60,7 @@ struct BasicSettingsView: View {
                 // 启动时自动开始计时
                 SettingToggleRow(
                     icon: "play.circle.fill",
-                    iconColor: .green,
+                    iconColor: .accentColor,
                     title: "启动时自动开始计时",
                     description: "应用启动后自动运行所有计时器"
                 ) {
@@ -74,7 +74,7 @@ struct BasicSettingsView: View {
                 // 启动计时器时显示提示
                 SettingToggleRow(
                     icon: "bell.badge",
-                    iconColor: .blue,
+                    iconColor: .accentColor,
                     title: "启动计时器时显示提示",
                     description: "启动或重置计时器时显示通知提示"
                 ) {
@@ -88,7 +88,7 @@ struct BasicSettingsView: View {
                 // 锁屏唤醒重计时
                 SettingToggleRow(
                     icon: "lock.rotation",
-                    iconColor: .blue,
+                    iconColor: .accentColor,
                     title: "从锁屏唤醒后重新计时",
                     description: "锁屏超过 5 分钟重新进入系统时，自动重置计时器"
                 ) {

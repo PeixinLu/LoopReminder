@@ -129,9 +129,23 @@ final class AppSettings: ObservableObject {
         // 多计时器
         static let timers = "timers"
         static let focusedTimerID = "focusedTimerID"
+        static let reminderEvents = "reminderEvents"
+        static let timerCustomColorPresets = "timerCustomColorPresets"
+        static let recentEmojis = "recentEmojis"
         // 材质选项
         static let overlayMaterial = "overlayMaterial"
         static let liquidGlassStyle = "liquidGlassStyle"
+        static let overlayGlassTintModeExperiment = "overlayGlassTintModeExperiment"
+        static let overlayGlassTintColorR = "overlayGlassTintColorR"
+        static let overlayGlassTintColorG = "overlayGlassTintColorG"
+        static let overlayGlassTintColorB = "overlayGlassTintColorB"
+        static let overlayGlassTintAlpha = "overlayGlassTintAlpha"
+        static let overlayGlassTextColorMode = "overlayGlassTextColorMode"
+        static let liquidGlassPreset = "liquidGlassPreset"
+        static let liquidGlassPresetColorSource = "liquidGlassPresetColorSource"
+        #if DEBUG
+        static let overlayWindowHostExperiment = "overlayWindowHostExperiment"
+        #endif
     }
 
     private let defaults = UserDefaults.standard
@@ -183,10 +197,25 @@ final class AppSettings: ObservableObject {
     // 多计时器支持
     @Published var timers: [TimerItem]
     @Published var focusedTimerID: UUID?
+    @Published var reminderEvents: [ReminderEvent]
+    @Published var timerCustomColorPresets: [TimerCustomColorPreset]
+    @Published var recentEmojis: [String]
+
+    // 编辑状态（跨窗口共享，非持久化）
+    @Published var editingTimerID: UUID?
 
     // 材质选项
     @Published var overlayMaterial: OverlayMaterial
     @Published var liquidGlassStyle: LiquidGlassStyle
+    @Published var overlayGlassTintModeExperiment: OverlayGlassTintExperiment
+    @Published var overlayGlassTintColor: Color
+    @Published var overlayGlassTintAlpha: Double
+    @Published var overlayGlassTextColorMode: OverlayGlassTextColorMode
+    @Published var liquidGlassPreset: LiquidGlassPresetID
+    @Published var liquidGlassPresetColorSource: LiquidGlassPresetColorSource
+    #if DEBUG
+    @Published var overlayWindowHostExperiment: OverlayWindowHostExperiment
+    #endif
 
     // MARK: - Enums
 
@@ -200,10 +229,344 @@ final class AppSettings: ObservableObject {
         case liquidGlass = "液态玻璃"
     }
 
-    enum LiquidGlassStyle: String, CaseIterable {
-        case clear = "清晰"
-        case regular = "常规"
+    enum OverlayGlassTintExperiment: String, CaseIterable {
+        case focusLiteDefault
+        case off
+        case systemDefault
+        case overlayColor
+        case custom
+
+        var displayName: String {
+            switch self {
+            case .focusLiteDefault:
+                return "FocusLite默认"
+            case .off:
+                return "关闭"
+            case .systemDefault:
+                return "系统黑白"
+            case .overlayColor:
+                return "通知颜色"
+            case .custom:
+                return "自定义"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .focusLiteDefault:
+                return "常规=nil，通透/私有样式使用随外观切换的黑白 tint，alpha 固定 61.8%。"
+            case .off:
+                return "tintColor=nil，用于观察 NSGlassEffectView 原始材质表现。"
+            case .systemDefault:
+                return "使用随深浅色切换的黑/白 tint，可独立调整 alpha。"
+            case .overlayColor:
+                return "使用当前通知背景色作为 tint，可独立调整 alpha。"
+            case .custom:
+                return "使用下方自定义颜色作为 tint，可独立调整 alpha。"
+            }
+        }
     }
+
+    enum OverlayGlassTextColorMode: String, CaseIterable {
+        case automatic
+        case black
+        case white
+
+        var displayName: String {
+            switch self {
+            case .automatic:
+                return "自动"
+            case .black:
+                return "黑"
+            case .white:
+                return "白"
+            }
+        }
+    }
+
+    enum LiquidGlassPresetColorSource: String, CaseIterable {
+        case presetDefault
+        case customNotificationColor
+
+        var displayName: String {
+            switch self {
+            case .presetDefault:
+                return "预设默认"
+            case .customNotificationColor:
+                return "自定义通知颜色"
+            }
+        }
+    }
+
+    struct LiquidGlassPresetRGB {
+        let red: Double
+        let green: Double
+        let blue: Double
+
+        var color: Color {
+            Color(red: red, green: green, blue: blue)
+        }
+    }
+
+    struct LiquidGlassPresetMode {
+        let liquidGlassStyle: LiquidGlassStyle
+        let textColorMode: OverlayGlassTextColorMode
+        let tintAlpha: Double
+        let tintBrightness: Double
+        let tintRGB: LiquidGlassPresetRGB
+    }
+
+    struct LiquidGlassPresetDefinition {
+        let id: LiquidGlassPresetID
+        let name: String
+        let summary: String
+        let supportsCustomColor: Bool
+        let light: LiquidGlassPresetMode
+        let dark: LiquidGlassPresetMode
+
+        func mode(for appearance: LiquidGlassAppearance) -> LiquidGlassPresetMode {
+            appearance == .dark ? dark : light
+        }
+    }
+
+    enum LiquidGlassAppearance {
+        case light
+        case dark
+    }
+
+    enum LiquidGlassPresetID: String, CaseIterable {
+        case inspector
+        case monogram
+        case textDeep
+        case appIcons
+        case bubbles
+        case controlCenter
+        case regular
+
+        var definition: LiquidGlassPresetDefinition {
+            switch self {
+            case .inspector:
+                let mode = LiquidGlassPresetMode(
+                    liquidGlassStyle: .inspector,
+                    textColorMode: .automatic,
+                    tintAlpha: 0,
+                    tintBrightness: 0,
+                    tintRGB: LiquidGlassPresetRGB(red: 0, green: 0, blue: 0)
+                )
+                return LiquidGlassPresetDefinition(
+                    id: self,
+                    name: "极致超薄",
+                    summary: "通透薄玻璃，很透明但是又有一点点蒙层的感觉，不支持背景颜色，复杂背景可读性较差",
+                    supportsCustomColor: false,
+                    light: mode,
+                    dark: mode
+                )
+            case .monogram:
+                let mode = LiquidGlassPresetMode(
+                    liquidGlassStyle: .monogram,
+                    textColorMode: .automatic,
+                    tintAlpha: 0,
+                    tintBrightness: 0,
+                    tintRGB: LiquidGlassPresetRGB(red: 0, green: 0, blue: 0)
+                )
+                return LiquidGlassPresetDefinition(
+                    id: self,
+                    name: "极致通透",
+                    summary: "通透厚玻璃，极致的完全透明，带较大的扭曲质感，文本跟随系统深浅色切换，不支持背景颜色，可读性极差",
+                    supportsCustomColor: false,
+                    light: mode,
+                    dark: mode
+                )
+            case .textDeep:
+                let mode = LiquidGlassPresetMode(
+                    liquidGlassStyle: .text,
+                    textColorMode: .white,
+                    tintAlpha: 0.8,
+                    tintBrightness: 0.1,
+                    tintRGB: LiquidGlassPresetRGB(red: 0.1, green: 0.1, blue: 0.1)
+                )
+                return LiquidGlassPresetDefinition(
+                    id: self,
+                    name: "通透",
+                    summary: "轻磨砂玻璃，背景颜色比较深，白色字体，支持自定义背景颜色",
+                    supportsCustomColor: true,
+                    light: mode,
+                    dark: mode
+                )
+            case .appIcons:
+                let mode = LiquidGlassPresetMode(
+                    liquidGlassStyle: .appIcons,
+                    textColorMode: .automatic,
+                    tintAlpha: 0.2,
+                    tintBrightness: 1,
+                    tintRGB: LiquidGlassPresetRGB(red: 1, green: 1, blue: 1)
+                )
+                return LiquidGlassPresetDefinition(
+                    id: self,
+                    name: "标准",
+                    summary: "磨砂玻璃，文本颜色自适应浅色和深色背景，支持自定义背景颜色",
+                    supportsCustomColor: true,
+                    light: mode,
+                    dark: mode
+                )
+            case .bubbles:
+                let mode = LiquidGlassPresetMode(
+                    liquidGlassStyle: .bubbles,
+                    textColorMode: .automatic,
+                    tintAlpha: 0,
+                    tintBrightness: 0,
+                    tintRGB: LiquidGlassPresetRGB(red: 0, green: 0, blue: 0)
+                )
+                return LiquidGlassPresetDefinition(
+                    id: self,
+                    name: "优化",
+                    summary: "磨砂玻璃，做了文本可读性优化，但是不支持自定义背景颜色",
+                    supportsCustomColor: false,
+                    light: mode,
+                    dark: mode
+                )
+            case .controlCenter:
+                let mode = LiquidGlassPresetMode(
+                    liquidGlassStyle: .controlCenter,
+                    textColorMode: .white,
+                    tintAlpha: 0.4,
+                    tintBrightness: 0.076,
+                    tintRGB: LiquidGlassPresetRGB(red: 0.076, green: 0.076, blue: 0.076)
+                )
+                return LiquidGlassPresetDefinition(
+                    id: self,
+                    name: "厚",
+                    summary: "厚磨砂玻璃-暗，提供类似控制中心的质感，支持颜色，明度稍暗确保白字的可读性",
+                    supportsCustomColor: true,
+                    light: mode,
+                    dark: mode
+                )
+            case .regular:
+                let mode = LiquidGlassPresetMode(
+                    liquidGlassStyle: .regular,
+                    textColorMode: .automatic,
+                    tintAlpha: 0,
+                    tintBrightness: 0,
+                    tintRGB: LiquidGlassPresetRGB(red: 0, green: 0, blue: 0)
+                )
+                return LiquidGlassPresetDefinition(
+                    id: self,
+                    name: "稳定",
+                    summary: "由于 macOS 26 优化问题，只开放了极少数液态玻璃 API，当其他预设表现异常时，请选用此项",
+                    supportsCustomColor: false,
+                    light: mode,
+                    dark: mode
+                )
+            }
+        }
+    }
+
+    enum LiquidGlassStyle: String, CaseIterable {
+        case regular
+        case clear
+        case dock
+        case appIcons
+        case widgets
+        case text
+        case avPlayer
+        case faceTime
+        case controlCenter
+        case notificationCenter
+        case monogram
+        case bubbles
+        case identity
+        case focusBorder
+        case focusPlatter
+        case keyboard
+        case sidebar
+        case abuttedSidebar
+        case inspector
+        case control
+        case loupe
+        case slider
+        case camera
+        case cartouchePopover
+
+        var displayName: String {
+            switch self {
+            case .regular: return "常规"
+            case .clear: return "通透"
+            case .dock: return "Dock"
+            case .appIcons: return "AppIcons"
+            case .widgets: return "Widgets"
+            case .text: return "Text"
+            case .avPlayer: return "AvPlayer"
+            case .faceTime: return "FaceTime"
+            case .controlCenter: return "ControlCenter"
+            case .notificationCenter: return "NotificationCenter"
+            case .monogram: return "Monogram"
+            case .bubbles: return "Bubbles"
+            case .identity: return "Identity"
+            case .focusBorder: return "FocusBorder"
+            case .focusPlatter: return "FocusPlatter"
+            case .keyboard: return "Keyboard"
+            case .sidebar: return "Sidebar"
+            case .abuttedSidebar: return "AbuttedSidebar"
+            case .inspector: return "Inspector"
+            case .control: return "Control"
+            case .loupe: return "Loupe"
+            case .slider: return "Slider"
+            case .camera: return "Camera"
+            case .cartouchePopover: return "CartouchePopover"
+            }
+        }
+
+        static func fromStoredValue(_ value: String) -> LiquidGlassStyle? {
+            if let style = LiquidGlassStyle(rawValue: value) {
+                return style
+            }
+            switch value {
+            case "常规":
+                return .regular
+            case "清晰", "通透":
+                return .clear
+            case "Dock":
+                return .dock
+            default:
+                return nil
+            }
+        }
+    }
+
+    #if DEBUG
+    enum OverlayWindowHostExperiment: String, CaseIterable {
+        case currentPanel
+        case panelFloatingLevel
+        case windowFloating
+        case focusLiteWindow
+
+        var displayName: String {
+            switch self {
+            case .currentPanel:
+                return "A 当前面板"
+            case .panelFloatingLevel:
+                return "C 浮动面板"
+            case .windowFloating:
+                return "E 浮动窗口"
+            case .focusLiteWindow:
+                return "F FocusLite窗口"
+            }
+        }
+
+        var detail: String {
+            switch self {
+            case .currentPanel:
+                return "NSPanel + nonactivating + popUpMenu"
+            case .panelFloatingLevel:
+                return "NSPanel + nonactivating + floating"
+            case .windowFloating:
+                return "NSWindow + borderless + floating"
+            case .focusLiteWindow:
+                return "Key NSWindow + borderless + floating + firstResponder"
+            }
+        }
+    }
+    #endif
 
     enum OverlayPosition: String, CaseIterable {
         case topLeft = "左上角"
@@ -331,7 +694,41 @@ final class AppSettings: ObservableObject {
         self.overlayMaterial = OverlayMaterial(rawValue: materialRawValue) ?? .basic
 
         let liquidGlassStyleRawValue = defaults.string(forKey: Keys.liquidGlassStyle) ?? config.overlay.liquidGlassStyle
-        self.liquidGlassStyle = LiquidGlassStyle(rawValue: liquidGlassStyleRawValue) ?? .regular
+        self.liquidGlassStyle = LiquidGlassStyle.fromStoredValue(liquidGlassStyleRawValue) ?? .regular
+
+        let tintModeRawValue = defaults.string(forKey: Keys.overlayGlassTintModeExperiment) ?? OverlayGlassTintExperiment.focusLiteDefault.rawValue
+        self.overlayGlassTintModeExperiment = OverlayGlassTintExperiment(rawValue: tintModeRawValue) ?? .focusLiteDefault
+        let tintRed = defaults.object(forKey: Keys.overlayGlassTintColorR) as? Double ?? 1.0
+        let tintGreen = defaults.object(forKey: Keys.overlayGlassTintColorG) as? Double ?? 1.0
+        let tintBlue = defaults.object(forKey: Keys.overlayGlassTintColorB) as? Double ?? 1.0
+        self.overlayGlassTintColor = Color(red: tintRed, green: tintGreen, blue: tintBlue)
+        self.overlayGlassTintAlpha = defaults.object(forKey: Keys.overlayGlassTintAlpha) as? Double ?? 0.618
+        let textColorModeRawValue = defaults.string(forKey: Keys.overlayGlassTextColorMode) ?? OverlayGlassTextColorMode.automatic.rawValue
+        self.overlayGlassTextColorMode = OverlayGlassTextColorMode(rawValue: textColorModeRawValue) ?? .automatic
+        let presetRawValue = defaults.string(forKey: Keys.liquidGlassPreset) ?? LiquidGlassPresetID.appIcons.rawValue
+        self.liquidGlassPreset = LiquidGlassPresetID(rawValue: presetRawValue) ?? .appIcons
+        let presetColorSourceRawValue = defaults.string(forKey: Keys.liquidGlassPresetColorSource) ?? LiquidGlassPresetColorSource.presetDefault.rawValue
+        self.liquidGlassPresetColorSource = LiquidGlassPresetColorSource(rawValue: presetColorSourceRawValue) ?? .presetDefault
+        #if DEBUG
+        let hostExperimentRawValue = defaults.string(forKey: Keys.overlayWindowHostExperiment) ?? OverlayWindowHostExperiment.currentPanel.rawValue
+        self.overlayWindowHostExperiment = OverlayWindowHostExperiment(rawValue: hostExperimentRawValue) ?? .currentPanel
+        #endif
+
+        if let eventsData = defaults.data(forKey: Keys.reminderEvents),
+           let decodedEvents = try? JSONDecoder().decode([ReminderEvent].self, from: eventsData) {
+            self.reminderEvents = decodedEvents
+        } else {
+            self.reminderEvents = []
+        }
+
+        if let presetsData = defaults.data(forKey: Keys.timerCustomColorPresets),
+           let decodedPresets = try? JSONDecoder().decode([TimerCustomColorPreset].self, from: presetsData) {
+            self.timerCustomColorPresets = decodedPresets
+        } else {
+            self.timerCustomColorPresets = []
+        }
+
+        self.recentEmojis = defaults.stringArray(forKey: Keys.recentEmojis) ?? ["🔔", "⏰", "💧", "💊", "🏃", "😴"]
 
         // Load - focusedTimerID
         if let focusedIDString = defaults.string(forKey: Keys.focusedTimerID) {
@@ -400,10 +797,41 @@ final class AppSettings: ObservableObject {
             self?.defaults.set(id?.uuidString, forKey: Keys.focusedTimerID)
         }.store(in: &cancellables)
 
+        $reminderEvents.dropFirst().sink { [weak self] events in
+            if let encoded = try? JSONEncoder().encode(events) {
+                self?.defaults.set(encoded, forKey: Keys.reminderEvents)
+            }
+        }.store(in: &cancellables)
+
+        $timerCustomColorPresets.dropFirst().sink { [weak self] presets in
+            if let encoded = try? JSONEncoder().encode(presets) {
+                self?.defaults.set(encoded, forKey: Keys.timerCustomColorPresets)
+            }
+        }.store(in: &cancellables)
+
+        $recentEmojis.dropFirst().sink { [weak self] emojis in
+            self?.defaults.set(emojis, forKey: Keys.recentEmojis)
+        }.store(in: &cancellables)
+
         // Persist changes - 定点提醒
         // Persist changes - 材质选项
         $overlayMaterial.dropFirst().sink { [weak self] in self?.defaults.set($0.rawValue, forKey: Keys.overlayMaterial) }.store(in: &cancellables)
         $liquidGlassStyle.dropFirst().sink { [weak self] in self?.defaults.set($0.rawValue, forKey: Keys.liquidGlassStyle) }.store(in: &cancellables)
+        $overlayGlassTintModeExperiment.dropFirst().sink { [weak self] in self?.defaults.set($0.rawValue, forKey: Keys.overlayGlassTintModeExperiment) }.store(in: &cancellables)
+        $overlayGlassTintAlpha.dropFirst().sink { [weak self] in self?.defaults.set($0, forKey: Keys.overlayGlassTintAlpha) }.store(in: &cancellables)
+        $overlayGlassTextColorMode.dropFirst().sink { [weak self] in self?.defaults.set($0.rawValue, forKey: Keys.overlayGlassTextColorMode) }.store(in: &cancellables)
+        $liquidGlassPreset.dropFirst().sink { [weak self] in self?.defaults.set($0.rawValue, forKey: Keys.liquidGlassPreset) }.store(in: &cancellables)
+        $liquidGlassPresetColorSource.dropFirst().sink { [weak self] in self?.defaults.set($0.rawValue, forKey: Keys.liquidGlassPresetColorSource) }.store(in: &cancellables)
+        $overlayGlassTintColor.dropFirst().sink { [weak self] color in
+            guard let self else { return }
+            let components = color.components()
+            self.defaults.set(components.red, forKey: Keys.overlayGlassTintColorR)
+            self.defaults.set(components.green, forKey: Keys.overlayGlassTintColorG)
+            self.defaults.set(components.blue, forKey: Keys.overlayGlassTintColorB)
+        }.store(in: &cancellables)
+        #if DEBUG
+        $overlayWindowHostExperiment.dropFirst().sink { [weak self] in self?.defaults.set($0.rawValue, forKey: Keys.overlayWindowHostExperiment) }.store(in: &cancellables)
+        #endif
 
         // Guardrails
         if intervalSeconds < config.interval.min { intervalSeconds = config.interval.min }
@@ -412,6 +840,8 @@ final class AppSettings: ObservableObject {
         if restSeconds > config.interval.max { restSeconds = config.interval.max }
         if overlayOpacity < 0.1 { overlayOpacity = 0.1 }
         if overlayOpacity > 1.0 { overlayOpacity = 1.0 }
+        if overlayGlassTintAlpha < 0 { overlayGlassTintAlpha = 0 }
+        if overlayGlassTintAlpha > 1 { overlayGlassTintAlpha = 1 }
 
         validateTimingSettings()
     }
@@ -435,6 +865,30 @@ final class AppSettings: ObservableObject {
             overlayFadeOutDuration = max(0.5, maxFadeOutDuration)
         }
         if overlayFadeOutDuration < 0.5 { overlayFadeOutDuration = 0.5 }
+    }
+
+    func recordReminderFired(timerID: UUID, scheduledAt: Date = Date(), firedAt: Date = Date()) -> UUID {
+        let event = ReminderEvent(timerID: timerID, scheduledAt: scheduledAt, firedAt: firedAt)
+        reminderEvents.append(event)
+        trimReminderEvents()
+        return event.id
+    }
+
+    func resolveReminderEvent(_ eventID: UUID?, as status: ReminderEventStatus, resolvedAt: Date = Date()) {
+        guard let eventID,
+              let index = reminderEvents.firstIndex(where: { $0.id == eventID }),
+              reminderEvents[index].status == .fired else {
+            return
+        }
+
+        reminderEvents[index].status = status
+        reminderEvents[index].resolvedAt = resolvedAt
+    }
+
+    private func trimReminderEvents() {
+        let calendar = Calendar.current
+        let cutoff = calendar.date(byAdding: .day, value: -14, to: Date()) ?? Date()
+        reminderEvents.removeAll { $0.firedAt < cutoff }
     }
 
     var lastFireDate: Date? {
@@ -513,6 +967,29 @@ final class AppSettings: ObservableObject {
         case .teal: return .teal
         case .custom: return overlayCustomColor
         }
+    }
+
+    @discardableResult
+    func saveTimerCustomColorPreset(id: String? = nil, color: Color) -> TimerCustomColorPreset? {
+        if let id,
+           let index = timerCustomColorPresets.firstIndex(where: { $0.id == id }) {
+            let nextPreset = TimerCustomColorPreset(id: id, color: color)
+            timerCustomColorPresets[index] = nextPreset
+            return nextPreset
+        }
+
+        guard timerCustomColorPresets.count < TimerCustomColorPreset.maximumCount else {
+            return nil
+        }
+
+        let existingIDs = Set(timerCustomColorPresets.map(\.id))
+        let nextPreset = TimerCustomColorPreset(id: TimerCustomColorPreset.makeID(excluding: existingIDs), color: color)
+        timerCustomColorPresets.append(nextPreset)
+        return nextPreset
+    }
+
+    func recordRecentEmoji(_ emoji: String) {
+        recentEmojis = EmojiSelection.recentEmojis(afterSelecting: emoji, existing: recentEmojis, limit: 20)
     }
 
     func isContentValid() -> Bool {

@@ -19,7 +19,7 @@ struct AboutView: View {
             // 页面标题 - 固定
             PageHeader(
                 icon: "info.circle.fill",
-                iconColor: .blue,
+                iconColor: .accentColor,
                 title: "关于",
                 subtitle: "了解更多应用信息"
             )
@@ -95,7 +95,7 @@ struct AboutView: View {
                     .font(.title2)
                     .foregroundStyle(
                         LinearGradient(
-                            colors: [.blue, .purple],
+                            colors: [.accentColor, .purple],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )

@@ -8,6 +8,38 @@ enum ReminderType: String, Codable, CaseIterable {
     case scheduled = "定点提醒"
 }
 
+enum ReminderEventStatus: String, Codable, CaseIterable {
+    case fired
+    case completed
+    case ignored
+    case missed
+}
+
+struct ReminderEvent: Identifiable, Codable {
+    var id: UUID
+    var timerID: UUID
+    var scheduledAt: Date
+    var firedAt: Date
+    var resolvedAt: Date?
+    var status: ReminderEventStatus
+
+    init(
+        id: UUID = UUID(),
+        timerID: UUID,
+        scheduledAt: Date,
+        firedAt: Date = Date(),
+        resolvedAt: Date? = nil,
+        status: ReminderEventStatus = .fired
+    ) {
+        self.id = id
+        self.timerID = timerID
+        self.scheduledAt = scheduledAt
+        self.firedAt = firedAt
+        self.resolvedAt = resolvedAt
+        self.status = status
+    }
+}
+
 // MARK: - Scheduled Time
 
 struct ScheduledTime: Identifiable, Codable {
@@ -30,6 +62,11 @@ struct ScheduledTime: Identifiable, Codable {
 
 // 计时器项目模型
 struct TimerItem: Identifiable, Codable {
+    enum StayDurationMode: String, Codable, CaseIterable {
+        case untilNextNotification = "持续到下次通知"
+        case fixed = "固定时长"
+    }
+
     var id: UUID
     var emoji: String // 图标
     var title: String // 通知标题（也作为计时器名称）
@@ -50,6 +87,13 @@ struct TimerItem: Identifiable, Codable {
     // 提示音（nil 表示静音）
     var soundName: String? = "Glass"
 
+    // 通知停留时间
+    var stayDurationMode: StayDurationMode = .untilNextNotification
+    var stayDurationSeconds: Double = 5.0
+
+    // 当前会话启动时间，仅用于界面统计展示，不持久化
+    var startedAtEpoch: Double = 0
+
     // 计算属性：显示名称（使用标题，如果为空则用"计时器+数字"）
     var displayName: String {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -59,6 +103,7 @@ struct TimerItem: Identifiable, Codable {
     /// 计时器颜色配置
     struct TimerColor: Codable, Equatable {
         var colorType: ColorType
+        var customPresetID: String?
         var customR: Double?
         var customG: Double?
         var customB: Double?
@@ -72,6 +117,13 @@ struct TimerItem: Identifiable, Codable {
             case orange = "橙色"
             case red = "红色"
             case teal = "青色"
+            case slate = "石墨"
+            case sky = "天蓝"
+            case violet = "紫罗兰"
+            case emerald = "翠绿"
+            case amber = "琥珀"
+            case rose = "玫瑰"
+            case transparent = "透明"
             case custom = "自定义"
         }
         
@@ -85,6 +137,13 @@ struct TimerItem: Identifiable, Codable {
             case .orange: return .orange
             case .red: return .red
             case .teal: return .teal
+            case .slate: return Color(red: 0.20, green: 0.25, blue: 0.33)
+            case .sky: return Color(red: 0.05, green: 0.58, blue: 0.89)
+            case .violet: return Color(red: 0.49, green: 0.23, blue: 0.93)
+            case .emerald: return Color(red: 0.02, green: 0.59, blue: 0.41)
+            case .amber: return Color(red: 0.96, green: 0.62, blue: 0.04)
+            case .rose: return Color(red: 0.88, green: 0.11, blue: 0.28)
+            case .transparent: return .clear
             case .custom:
                 if let r = customR, let g = customG, let b = customB {
                     return Color(red: r, green: g, blue: b)
@@ -138,7 +197,10 @@ struct TimerItem: Identifiable, Codable {
         lastFireEpoch: Double = 0,
         reminderType: ReminderType = .interval,
         scheduledTimes: [ScheduledTime] = [ScheduledTime(hour: 9, minute: 0)],
-        soundName: String? = "Glass"
+        soundName: String? = "Glass",
+        stayDurationMode: StayDurationMode = .untilNextNotification,
+        stayDurationSeconds: Double = 5.0,
+        startedAtEpoch: Double = 0
     ) {
         self.id = id
         self.emoji = emoji
@@ -152,7 +214,30 @@ struct TimerItem: Identifiable, Codable {
         self.reminderType = reminderType
         self.scheduledTimes = scheduledTimes
         self.soundName = soundName
+        self.stayDurationMode = stayDurationMode
+        self.stayDurationSeconds = stayDurationSeconds
+        self.startedAtEpoch = startedAtEpoch
         self.isRunning = false
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        emoji = try container.decode(String.self, forKey: .emoji)
+        title = try container.decode(String.self, forKey: .title)
+        body = try container.decode(String.self, forKey: .body)
+        intervalSeconds = try container.decode(Double.self, forKey: .intervalSeconds)
+        isRestEnabled = try container.decode(Bool.self, forKey: .isRestEnabled)
+        restSeconds = try container.decode(Double.self, forKey: .restSeconds)
+        customColor = try container.decodeIfPresent(TimerColor.self, forKey: .customColor)
+        lastFireEpoch = try container.decode(Double.self, forKey: .lastFireEpoch)
+        reminderType = try container.decodeIfPresent(ReminderType.self, forKey: .reminderType) ?? .interval
+        scheduledTimes = try container.decodeIfPresent([ScheduledTime].self, forKey: .scheduledTimes) ?? [ScheduledTime(hour: 9, minute: 0)]
+        soundName = container.contains(.soundName) ? try container.decodeIfPresent(String.self, forKey: .soundName) : "Glass"
+        stayDurationMode = try container.decodeIfPresent(StayDurationMode.self, forKey: .stayDurationMode) ?? .untilNextNotification
+        stayDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .stayDurationSeconds) ?? 5.0
+        isRunning = false
+        startedAtEpoch = 0
     }
     
     var lastFireDate: Date? {
@@ -224,5 +309,6 @@ struct TimerItem: Identifiable, Codable {
         case id, emoji, title, body, intervalSeconds
         case isRestEnabled, restSeconds, customColor, lastFireEpoch
         case reminderType, scheduledTimes, soundName
+        case stayDurationMode, stayDurationSeconds
     }
 }

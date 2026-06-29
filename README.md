@@ -1,6 +1,6 @@
 <h1 align="center">
   <br>
-  <img src="LoopReminder/Assets.xcassets/AppIcon.appiconset/icon_128x128@2x.png" width="100" alt="Loop Reminder">
+  <img src="LoopReminder/Assets.xcassets/AppIcon.appiconset/icon_128x128@2x.png" width="100" alt="Loop Reminder" style="border: 2px solid #ccc;border-radius: 20px">
   <br>
   Loop Reminder
   <br>
@@ -12,59 +12,68 @@
   <a href="README.md">中文</a> | <a href="README.en.md">English</a>
 </p>
 
-## 📦 下载
+## 下载
 
-- **"快上车" ➡️**：**[GitHub Releases](https://github.com/PeixinLu/MacOS-LoopRemider/releases)**
+- **快上车！ ➡️**：**[Releases](https://github.com/PeixinLu/MacOS-LoopRemider/releases)**
 
-## ✨ 特性
-
-- ⏰ **灵活提醒** - 自定义提醒间隔，定时提醒你休息活动
-- 🌈 **超高度自定义** - 提醒内容、位置、颜色、尺寸、透明度、圆角大小等丰富配置项
-- ✨ **精美动画** - 多种进入/退出动画效果可选，流畅优雅
-- 🚀 **轻量高效** - 常驻菜单栏，低资源占用
-- 🌟 更多特性等你发现...
-
-## 📸 预览
+## 特性总览
 
 <p align="center">
-  <img src="Assets/preview-notice.gif" width="500" alt="通知效果">
+  <video src="Assets/notice-preview.mp4" controls width="700"></video>
 </p>
-<p align="center"><em>通知效果</em></p>
+
+#### 1. 灵活提醒
+
+支持间隔提醒或者定点提醒
 
 <p align="center">
   <img src="Assets/preview-setting-basic.png" width="280" alt="基础设置">
-  <img src="Assets/preview-setting-style.png" width="280" alt="样式设置">
-  <img src="Assets/preview-setting-animation.gif" width="280" alt="动画设置">
 </p>
-<p align="center"><strong>配置项</strong></p>
+
+#### 2. 超高度自定义
+
+提供丰富的外观参数定制
+
+<p align="center">
+  <img src="Assets/preview-setting-style.png" width="280" alt="外观设置">
+</p>
+
+#### 3. 丰富的液态玻璃效果
+
+macOS26下提供丰富的液态玻璃外观预设，无论是极致透明还是针对复杂背景下文本可读性特别优化的预设，总有一款满足你
+
+<p align="center">
+  <video src="Assets/liquidglass.mp4" controls width="700"></video>
+</p>
+
+#### 4. 轻量高效
+
+常驻菜单栏，低资源占用
 
 ## 🎯 使用
 
-1. [下载最新版本](https://github.com/PeixinLu/MacOS-LoopRemider/releases)并安装
-
-   ![](Assets/installer.png)
+1. [下载最新版本](https://github.com/PeixinLu/MacOS-LoopRemider/releases)后运行
 
 2. 点击菜单栏"铃铛"图标打开设置
 
    ![](Assets/menu-icon.png)
 
-3. 配置提醒内容、频率和样式、动画效果
+3. 配置提醒内容、频率和外观、动画效果等
 
    ![](Assets/preview-setting-basic.png)
 
-4. 点击"启动"开始循环提醒
-
-   ![](Assets/preview-notice.gif)
+4. 点击"启动"开启计时器
 
 ## 🔧 系统要求
 
 - macOS 14.0+(目前暂时仅在macOS26下经过测试)
+- 液态玻璃效果仅支持macOS26
 - 如果需要更多版本支持，请[告诉我](https://github.com/PeixinLu/MacOS-LoopRemider/issues/new)
 
 ## 📝 开发
 
-- 基于 SwiftUI 和 MenuBarExtra 构建。
-- 网络请求用于检查版本更新
+- 基于 SwiftUI构建。
+- 基本网络请求用于检查版本更新
 
 ## 🙏 致谢
 

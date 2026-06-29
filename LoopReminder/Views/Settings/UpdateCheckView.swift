@@ -12,7 +12,7 @@ struct UpdateCheckView: View {
             // 页面标题 - 固定
             PageHeader(
                 icon: "arrow.down.circle.fill",
-                iconColor: .blue,
+                iconColor: .accentColor,
                 title: "检查更新",
                 subtitle: "当前版本：\(updater.versionDescription)"
             ) {
@@ -30,12 +30,12 @@ struct UpdateCheckView: View {
 
                     // 设置项
                     VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
-                        SettingRow(icon: "number.circle.fill", iconColor: .blue, title: "当前版本") {
+                        SettingRow(icon: "number.circle.fill", iconColor: .accentColor, title: "当前版本") {
                             Text(updater.versionDescription)
                                 .foregroundColor(.secondary)
                         }
 
-                        SettingRow(icon: "arrow.triangle.2.circlepath.circle.fill", iconColor: .purple, title: "自动检查更新") {
+                        SettingRow(icon: "arrow.triangle.2.circlepath.circle.fill", iconColor: .accentColor, title: "自动检查更新") {
                             Toggle(
                                 "",
                                 isOn: Binding(
@@ -52,7 +52,7 @@ struct UpdateCheckView: View {
 
                     Divider()
 
-                    InfoHint("点击「检查更新」后，Sparkle 会提示安装并在安装后自动替换并重启应用。", color: .blue)
+                    InfoHint("点击「检查更新」后，Sparkle 会提示安装并在安装后自动替换并重启应用。", color: .accentColor)
                 }
                 .padding(.bottom, DesignTokens.Spacing.xl)
             }

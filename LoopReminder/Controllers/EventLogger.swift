@@ -7,6 +7,7 @@ final class EventLogger {
     
     private let fileURL: URL
     private let dateFormatter: DateFormatter
+    private let hiddenLogMarkers = ["[材质排查]"]
     
     private init() {
         let supportDir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
@@ -44,7 +45,14 @@ final class EventLogger {
               let content = String(data: data, encoding: .utf8) else {
             return []
         }
-        return content.split(separator: "\n").map(String.init)
+        return content
+            .split(separator: "\n")
+            .map(String.init)
+            .filter { line in
+                !hiddenLogMarkers.contains { marker in
+                    line.contains(marker)
+                }
+            }
     }
     
     func clear() {

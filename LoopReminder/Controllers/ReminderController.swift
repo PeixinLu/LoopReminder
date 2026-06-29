@@ -6,6 +6,8 @@ import os
 
 @MainActor
 final class ReminderController: ObservableObject {
+    private static let stylePreviewTimerID = UUID(uuidString: "00000000-0000-0000-0000-00000000A11E") ?? UUID()
+
     @Published var isResting: Bool = false
 
     // 多计时器支持
@@ -17,12 +19,13 @@ final class ReminderController: ObservableObject {
     private var scheduledTimers: [UUID: Timer] = [:] // 定点提醒的 Timer
 
     // 多通知管理
-    private var overlayWindows: [UUID: NSPanel] = [:] // 每个计时器的通知窗口
+    private var overlayWindows: [UUID: NSWindow] = [:] // 每个计时器的通知窗口
+    private var overlayEventIDs: [UUID: UUID] = [:]
     private var notificationOrder: [UUID] = [] // 通知显示顺序（从上到下）
     private var windowScreens: [UUID: NSScreen] = [:] // 记录每个窗口所在的屏幕
     
     private let center = UNUserNotificationCenter.current()
-    private var overlayWindow: NSPanel?  // 使用 NSPanel 替代 NSWindow 以支持全屏模式
+    private var overlayWindow: NSWindow?  // 使用 NSWindow 基类以支持材质宿主 A/B 实验
     private weak var settingsRef: AppSettings?
     private var lockObserver: NSObjectProtocol?
     private var unlockObserver: NSObjectProtocol?
@@ -60,6 +63,10 @@ final class ReminderController: ObservableObject {
         let textColor: Color?
         let overlayMaterial: AppSettings.OverlayMaterial
         let liquidGlassStyle: AppSettings.LiquidGlassStyle
+        let glassTintMode: AppSettings.OverlayGlassTintExperiment
+        let glassTintColor: Color
+        let glassTintAlpha: Double
+        let glassTextColorMode: AppSettings.OverlayGlassTextColorMode
     }
 
     func ensurePermission() async {
@@ -97,6 +104,7 @@ final class ReminderController: ObservableObject {
             // 标记为运行中
             if let index = settings.timers.firstIndex(where: { $0.id == timer.id }) {
                 settings.timers[index].isRunning = true
+                settings.timers[index].startedAtEpoch = Date().timeIntervalSince1970
             }
         }
 
@@ -175,32 +183,8 @@ final class ReminderController: ObservableObject {
 
     /// 发送定点提醒通知
     private func sendScheduledNotification(timer: TimerItem, settings: AppSettings) async {
-        let content = buildContent(timer: timer)
-        let style = buildOverlayStyle(timer: timer, settings: settings)
-
-        logger.log("定点提醒触发: \(timer.displayName) - \(content.title.isEmpty ? "(无标题)" : content.title)")
-
-        // 播放提示音
-        playSound(for: timer)
-
-        // 创建临时 TimerItem 用于发送通知（不影响原有计时器状态）
-        let tempTimerItem = TimerItem(
-            emoji: timer.emoji,
-            title: timer.title,
-            body: timer.body,
-            intervalSeconds: 86400,
-            isRestEnabled: false,
-            restSeconds: 0,
-            customColor: timer.customColor,
-            lastFireEpoch: Date().timeIntervalSince1970
-        )
-
-        switch settings.notificationMode {
-        case .system:
-            await sendSystemNotification(content: content)
-        case .overlay:
-            showOverlayNotification(timer: tempTimerItem, settings: settings, content: content, style: style, triggerRestOnDismiss: false)
-        }
+        logger.log("定点提醒触发: \(timer.displayName)")
+        await sendNotification(for: timer, settings: settings, triggerRestOnDismiss: false)
     }
 
     func stop() {
@@ -226,12 +210,17 @@ final class ReminderController: ObservableObject {
         if var allTimers = settingsRef?.timers {
             for i in allTimers.indices {
                 allTimers[i].isRunning = false
+                allTimers[i].startedAtEpoch = 0
             }
             settingsRef?.timers = allTimers
         }
 
         isResting = false
         // 停止时关闭所有未关闭的通知弹窗
+        for (_, eventID) in overlayEventIDs {
+            settingsRef?.resolveReminderEvent(eventID, as: .missed)
+        }
+        overlayEventIDs.removeAll()
         closeOverlay()
         logger.log("计时器已停止")
     }
@@ -263,6 +252,7 @@ final class ReminderController: ObservableObject {
         // 标记为运行中
         if let index = settings.timers.firstIndex(where: { $0.id == timerID }) {
             settings.timers[index].isRunning = true
+            settings.timers[index].startedAtEpoch = Date().timeIntervalSince1970
         }
 
         logger.log("启动计时器: \(timer.displayName)")
@@ -304,10 +294,13 @@ final class ReminderController: ObservableObject {
         // 标记为未运行
         if let index = settings.timers.firstIndex(where: { $0.id == timerID }) {
             settings.timers[index].isRunning = false
+            settings.timers[index].startedAtEpoch = 0
         }
         
         // 关闭该计时器的通知弹窗（如果有）
         if let window = overlayWindows[timerID] {
+            settings.resolveReminderEvent(overlayEventIDs[timerID], as: .missed)
+            overlayEventIDs.removeValue(forKey: timerID)
             // 从字典和顺序中移除
             overlayWindows.removeValue(forKey: timerID)
             windowScreens.removeValue(forKey: timerID)
@@ -415,6 +408,73 @@ final class ReminderController: ObservableObject {
         await sendNotification(for: timer, settings: settings, isTest: true, content: testContent, triggerRestOnDismiss: false, skipSound: skipSound)
     }
 
+    func sendStylePreview(settings: AppSettings) async {
+        let previewTimer = TimerItem(
+            id: Self.stylePreviewTimerID,
+            emoji: "✨",
+            title: "外观预览",
+            body: "这是一条专用测试通知",
+            intervalSeconds: 5,
+            customColor: nil
+        )
+
+        let previewContent = NotificationContent(
+            emoji: previewTimer.emoji,
+            title: "[外观预览] \(previewTimer.title)",
+            body: previewTimer.body
+        )
+
+        let baseStyle = buildOverlayStyle(timer: previewTimer, settings: settings)
+        let previewStyle = OverlayStyle(
+            backgroundColor: baseStyle.backgroundColor,
+            backgroundOpacity: baseStyle.backgroundOpacity,
+            stayDuration: 24 * 60 * 60,
+            enableFadeOut: false,
+            fadeOutDelay: 0,
+            fadeOutDuration: 0,
+            titleFontSize: baseStyle.titleFontSize,
+            bodyFontSize: baseStyle.bodyFontSize,
+            iconSize: baseStyle.iconSize,
+            cornerRadius: baseStyle.cornerRadius,
+            contentSpacing: baseStyle.contentSpacing,
+            useBlur: baseStyle.useBlur,
+            blurIntensity: baseStyle.blurIntensity,
+            overlayWidth: baseStyle.overlayWidth,
+            overlayHeight: baseStyle.overlayHeight,
+            animationStyle: baseStyle.animationStyle,
+            position: baseStyle.position,
+            padding: baseStyle.padding,
+            textColor: baseStyle.textColor,
+            overlayMaterial: baseStyle.overlayMaterial,
+            liquidGlassStyle: baseStyle.liquidGlassStyle,
+            glassTintMode: baseStyle.glassTintMode,
+            glassTintColor: baseStyle.glassTintColor,
+            glassTintAlpha: baseStyle.glassTintAlpha,
+            glassTextColorMode: baseStyle.glassTextColorMode
+        )
+
+        await sendNotification(
+            for: previewTimer,
+            settings: settings,
+            isTest: true,
+            content: previewContent,
+            overlayStyle: previewStyle,
+            triggerRestOnDismiss: false,
+            skipSound: true
+        )
+    }
+
+    func closeStylePreview() {
+        let timerID = Self.stylePreviewTimerID
+        overlayEventIDs.removeValue(forKey: timerID)
+        windowScreens.removeValue(forKey: timerID)
+        notificationOrder.removeAll { $0 == timerID }
+
+        guard let window = overlayWindows.removeValue(forKey: timerID) else { return }
+        window.orderOut(nil)
+        window.close()
+    }
+
     private func sendNotification(for timer: TimerItem, settings: AppSettings, isTest: Bool = false, content: NotificationContent? = nil, overlayStyle: OverlayStyle? = nil, triggerRestOnDismiss: Bool = true, skipSound: Bool = false) async {
         if !isTest {
             // 更新计时器的 lastFireEpoch
@@ -425,6 +485,7 @@ final class ReminderController: ObservableObject {
 
         let payload = content ?? buildContent(timer: timer)
         let style = overlayStyle ?? buildOverlayStyle(timer: timer, settings: settings)
+        let eventID = isTest ? nil : settings.recordReminderFired(timerID: timer.id, scheduledAt: Date(), firedAt: Date())
         logger.log("发送通知: \(payload.title.isEmpty ? "(无标题)" : payload.title) | 模式 \(settings.notificationMode.rawValue)\(isTest ? " [测试]" : "")\(skipSound ? " [静音]" : "")")
 
         // 播放提示音
@@ -435,8 +496,9 @@ final class ReminderController: ObservableObject {
         switch settings.notificationMode {
         case .system:
             await sendSystemNotification(content: payload)
+            settings.resolveReminderEvent(eventID, as: .missed)
         case .overlay:
-            showOverlayNotification(timer: timer, settings: settings, content: payload, style: style, triggerRestOnDismiss: triggerRestOnDismiss)
+            showOverlayNotification(timer: timer, settings: settings, content: payload, style: style, triggerRestOnDismiss: triggerRestOnDismiss, eventID: eventID)
         }
     }
 
@@ -516,7 +578,7 @@ final class ReminderController: ObservableObject {
         return OverlayStyle(
             backgroundColor: backgroundColor,
             backgroundOpacity: settings.overlayOpacity,
-            stayDuration: settings.overlayStayDuration,
+            stayDuration: overlayStayDuration(for: timer),
             enableFadeOut: settings.overlayEnableFadeOut,
             fadeOutDelay: settings.overlayFadeOutDelay,
             fadeOutDuration: settings.overlayFadeOutDuration,
@@ -534,8 +596,29 @@ final class ReminderController: ObservableObject {
             padding: settings.overlayEdgePadding,
             textColor: nil,
             overlayMaterial: settings.overlayMaterial,
-            liquidGlassStyle: settings.liquidGlassStyle
+            liquidGlassStyle: settings.liquidGlassStyle,
+            glassTintMode: settings.overlayGlassTintModeExperiment,
+            glassTintColor: settings.overlayGlassTintColor,
+            glassTintAlpha: settings.overlayGlassTintAlpha,
+            glassTextColorMode: settings.overlayGlassTextColorMode
         )
+    }
+
+    private func overlayStayDuration(for timer: TimerItem) -> Double {
+        if timer.stayDurationMode == .fixed {
+            return max(1, timer.stayDurationSeconds)
+        }
+
+        switch timer.reminderType {
+        case .interval:
+            return max(1, timer.intervalSeconds)
+        case .scheduled:
+            let enabledTimes = timer.scheduledTimes.filter { $0.enabled }
+            guard !enabledTimes.isEmpty else { return max(1, settingsRef?.overlayStayDuration ?? 5) }
+            let nextDates = enabledTimes.map { calculateNextFireDate(hour: $0.hour, minute: $0.minute) }
+            let nextDate = nextDates.min() ?? Date().addingTimeInterval(300)
+            return max(1, nextDate.timeIntervalSince(Date()))
+        }
     }
     
     private func buildStartOverlayStyle(settings: AppSettings) -> OverlayStyle {
@@ -565,7 +648,11 @@ final class ReminderController: ObservableObject {
             padding: settings.overlayEdgePadding,
             textColor: textColor,
             overlayMaterial: settings.overlayMaterial,
-            liquidGlassStyle: settings.liquidGlassStyle
+            liquidGlassStyle: settings.liquidGlassStyle,
+            glassTintMode: settings.overlayGlassTintModeExperiment,
+            glassTintColor: settings.overlayGlassTintColor,
+            glassTintAlpha: settings.overlayGlassTintAlpha,
+            glassTextColorMode: settings.overlayGlassTextColorMode
         )
     }
 
@@ -682,9 +769,11 @@ final class ReminderController: ObservableObject {
         }
     }
     
-    private func showOverlayNotification(timer: TimerItem, settings: AppSettings, content: NotificationContent, style: OverlayStyle, triggerRestOnDismiss: Bool) {
+    private func showOverlayNotification(timer: TimerItem, settings: AppSettings, content: NotificationContent, style: OverlayStyle, triggerRestOnDismiss: Bool, eventID: UUID? = nil) {
         // 关闭该计时器的旧通知（同个计时器的通知会覆盖）
         if let existingWindow = overlayWindows[timer.id] {
+            settings.resolveReminderEvent(overlayEventIDs[timer.id], as: .missed)
+            overlayEventIDs.removeValue(forKey: timer.id)
             // 立即从字典和顺序中移除，防止新通知计算位置时把旧窗口算进去
             overlayWindows.removeValue(forKey: timer.id)
             windowScreens.removeValue(forKey: timer.id)
@@ -836,27 +925,8 @@ final class ReminderController: ObservableObject {
             )
         }
         
-        let window = NSPanel(
-            contentRect: windowRect,
-            styleMask: [.borderless, .nonactivatingPanel],  // 使用 nonactivatingPanel 以不激活窗口
-            backing: .buffered,
-            defer: false
-        )
-        
-        window.isOpaque = false
-        window.backgroundColor = .clear
-        // 使用 popUpMenu 级别确保在全屏应用上方显示
-        window.level = .popUpMenu
-        // 配置窗口行为：可加入所有空间、在全屏应用上方显示
-        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        window.ignoresMouseEvents = false
-        window.isReleasedWhenClosed = false
-        // 确保窗口不会被激活打断用户操作
-        window.hidesOnDeactivate = false
-        // 关键：设置为浮动面板，允许在全屏应用上方显示
-        window.isFloatingPanel = true
-        window.becomesKeyOnlyIfNeeded = true
-        
+        let window = makeOverlayWindow(contentRect: windowRect, settings: settings)
+
         let overlayView = OverlayNotificationView(
             emoji: content.emoji,
             title: content.title,
@@ -882,11 +952,27 @@ final class ReminderController: ObservableObject {
             textColor: style.textColor,
             overlayMaterial: style.overlayMaterial,
             liquidGlassStyle: style.liquidGlassStyle,
-            onDismiss: { [weak self, weak window, timerID = timer.id] isUserDismiss in
+            glassTintMode: style.glassTintMode,
+            glassTintColor: style.glassTintColor,
+            glassTintAlpha: style.glassTintAlpha,
+            glassTextColorMode: style.glassTextColorMode,
+            onDismiss: { [weak self, weak window, timerID = timer.id] reason in
                 Task {
                     guard let self, let w = window else { return }
                     // 检查是否是该计时器的窗口（防止处理已被替换的旧窗口）
                     if let current = self.overlayWindows[timerID], current === w {
+                        let resolvedStatus: ReminderEventStatus
+                        switch reason {
+                        case .completed:
+                            resolvedStatus = .completed
+                        case .ignored:
+                            resolvedStatus = .ignored
+                        case .missed:
+                            resolvedStatus = .missed
+                        }
+                        settings.resolveReminderEvent(self.overlayEventIDs[timerID], as: resolvedStatus)
+                        self.overlayEventIDs.removeValue(forKey: timerID)
+
                         // 从字典和顺序中移除（先移除再关闭，确保重新布局时不会计算它）
                         self.overlayWindows.removeValue(forKey: timerID)
                         
@@ -909,8 +995,8 @@ final class ReminderController: ObservableObject {
                             w?.close()
                         })
                         
-                        // 只有循环提醒类型且用户手动关闭通知时才触发休息机制
-                        if triggerRestOnDismiss && isUserDismiss && timer.reminderType == .interval && timer.isRestEnabled {
+                        // 只有循环提醒类型且用户主动处理通知时才触发休息机制
+                        if triggerRestOnDismiss && reason != .missed && timer.reminderType == .interval && timer.isRestEnabled {
                             // 停止当前计时器的定时器
                             if let t = self.timers[timerID] {
                                 t.invalidate()
@@ -939,14 +1025,124 @@ final class ReminderController: ObservableObject {
             }
         )
         
-        window.contentView = NSHostingView(rootView: overlayView)
+        let hostingView = NSHostingView(rootView: overlayView)
+        hostingView.wantsLayer = true
+        hostingView.layer?.backgroundColor = NSColor.clear.cgColor
+        if #available(macOS 14, *) {
+            hostingView.layer?.wantsExtendedDynamicRangeContent = true
+        }
+        window.contentView = hostingView
+        #if DEBUG
+        if settings.overlayWindowHostExperiment == .focusLiteWindow {
+            window.makeFirstResponder(hostingView)
+        }
+        #endif
         // 使用 orderFrontRegardless 确保窗口显示在最前方，即使在全屏模式下
         window.orderFrontRegardless()
         
         // 添加到窗口字典和顺序列表
         self.overlayWindows[timer.id] = window
+        if let eventID {
+            self.overlayEventIDs[timer.id] = eventID
+        }
         self.notificationOrder.append(timer.id)
         self.windowScreens[timer.id] = screen // 记录窗口所在的屏幕
+    }
+
+    private func makeOverlayWindow(contentRect: NSRect, settings: AppSettings) -> NSWindow {
+        #if DEBUG
+        switch settings.overlayWindowHostExperiment {
+        case .currentPanel:
+            return makeOverlayPanel(
+                contentRect: contentRect,
+                level: .popUpMenu,
+                hasShadow: true
+            )
+        case .panelFloatingLevel:
+            return makeOverlayPanel(
+                contentRect: contentRect,
+                level: .floating,
+                hasShadow: true
+            )
+        case .windowFloating:
+            return makeOverlayPlainWindow(
+                contentRect: contentRect,
+                level: .floating,
+                hasShadow: true
+            )
+        case .focusLiteWindow:
+            return makeOverlayFocusLiteWindow(
+                contentRect: contentRect,
+                level: .floating,
+                hasShadow: true
+            )
+        }
+        #else
+        return makeOverlayPanel(
+            contentRect: contentRect,
+            level: .popUpMenu,
+            hasShadow: true
+        )
+        #endif
+    }
+
+    private func makeOverlayPanel(contentRect: NSRect, level: NSWindow.Level, hasShadow: Bool) -> NSPanel {
+        let panel = NSPanel(
+            contentRect: contentRect,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
+        )
+        configureOverlayWindow(panel, level: level, hasShadow: hasShadow)
+        panel.hidesOnDeactivate = false
+        panel.isFloatingPanel = true
+        panel.becomesKeyOnlyIfNeeded = true
+        return panel
+    }
+
+    private func makeOverlayPlainWindow(contentRect: NSRect, level: NSWindow.Level, hasShadow: Bool) -> NSWindow {
+        let window = NSWindow(
+            contentRect: contentRect,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        configureOverlayWindow(window, level: level, hasShadow: hasShadow)
+        return window
+    }
+
+    #if DEBUG
+    private func makeOverlayFocusLiteWindow(contentRect: NSRect, level: NSWindow.Level, hasShadow: Bool) -> NSWindow {
+        let window = OverlayFocusLiteExperimentWindow(
+            contentRect: contentRect,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        configureOverlayWindow(window, level: level, hasShadow: hasShadow)
+        window.isMovableByWindowBackground = true
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        return window
+    }
+    #endif
+
+    private func configureOverlayWindow(_ window: NSWindow, level: NSWindow.Level, hasShadow: Bool) {
+        window.isOpaque = false
+        window.backgroundColor = .clear
+        window.level = level
+        window.hasShadow = hasShadow
+        window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.ignoresMouseEvents = false
+        window.isReleasedWhenClosed = false
+    }
+
+    private func overlayWindowHostDescription(settings: AppSettings) -> String {
+        #if DEBUG
+        return "\(settings.overlayWindowHostExperiment.displayName) (\(settings.overlayWindowHostExperiment.detail))"
+        #else
+        return "Release 当前面板 (NSPanel + nonactivating + popUpMenu)"
+        #endif
     }
     
     // 重新布局所有通知（当有通知消失时，其他通知上移）
@@ -1040,3 +1236,10 @@ final class ReminderController: ObservableObject {
         }
     }
 }
+
+#if DEBUG
+private final class OverlayFocusLiteExperimentWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+#endif

@@ -160,7 +160,7 @@ struct PreviewSectionView: View {
                             let heightScale = notifHeight > screenHeight ? screenHeight / notifHeight : 1.0
                             let scale = min(widthScale, heightScale, 1.0)
                             
-                            let backgroundColor = focusedTimer.customColor?.toColor() ?? settings.getOverlayColor()
+                            let backgroundColor = settings.getOverlayColor()
                             
                             ZStack {
                                 OverlayNotificationView(
@@ -188,6 +188,10 @@ struct PreviewSectionView: View {
                                     textColor: nil,
                                     overlayMaterial: settings.overlayMaterial,
                                     liquidGlassStyle: settings.liquidGlassStyle,
+                                    glassTintMode: settings.overlayGlassTintModeExperiment,
+                                    glassTintColor: settings.overlayGlassTintColor,
+                                    glassTintAlpha: settings.overlayGlassTintAlpha,
+                                    glassTextColorMode: settings.overlayGlassTextColorMode,
                                     onDismiss: { _ in }
                                 )
                             }
