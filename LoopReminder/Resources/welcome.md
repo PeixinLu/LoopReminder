@@ -1,12 +1,10 @@
-
-
 **嗨！欢迎来到 Loop Reminder 的小宇宙✨**
 
 希望它能帮你把提醒这件事，安排得明明白白～（至少比我靠谱一点🤡）
 
 如果你觉得好用，欢迎安利给朋友！让它去朋友电脑里也上班打卡😎
 
-官网：没有
+官网：[Loop Reminder](https://app.pxone.top/loopreminder/)
 
 我的其他效率工具：[GitHub](https://github.com/PeixinLu)
 
@@ -17,7 +15,6 @@ luhuijiao667@gmail.com
 
 我们还在持续迭代中，边跑边修、边修边进化🧬
 感谢你的支持！一起把它养成更好用的小怪兽👾
-
 
 抵制熬夜内卷，拒绝硬扛透支。
 注意自我保护，谨防上当受PUA。

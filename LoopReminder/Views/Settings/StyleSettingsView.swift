@@ -432,7 +432,7 @@ struct StyleSettingsView: View {
                     settings.liquidGlassPresetColorSource = newSource
                 }
             ),
-            labelFor: { $0.rawValue }
+            labelFor: { $0.displayName }
         ) { _ in
             Circle()
                 .fill(settings.overlayGlassTintColor)

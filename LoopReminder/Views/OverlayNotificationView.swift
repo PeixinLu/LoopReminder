@@ -1,13 +1,6 @@
 import SwiftUI
 import AppKit
 
-@MainActor
-private enum GlassDebugLog {
-    static func log(_ message: String) {
-        EventLogger.shared.log("[材质排查] \(message)")
-    }
-}
-
 private func setGlassVariant(_ view: NSView, _ value: Int) {
     let selector = NSSelectorFromString("set_variant:")
     guard view.responds(to: selector) else { return }
@@ -191,12 +184,6 @@ struct OverlayNotificationView: View {
             .padding(edgeInsetsForPosition())
             .frame(width: geometry.size.width, height: geometry.size.height, alignment: alignmentForPosition())
             .onAppear {
-                logMaterialAppearance(
-                    containerSize: geometry.size,
-                    isLiquidMaterial: isLiquidMaterial,
-                    prefersHighContrast: prefersHighContrast,
-                    prefersReducedTransparency: prefersReducedTransparency
-                )
                 applyEntryAnimation(containerSize: geometry.size)
                 startExitTimer(containerSize: geometry.size)
             }
@@ -435,21 +422,6 @@ struct OverlayNotificationView: View {
         return .black.opacity(prefersHighContrast ? 0.78 : 0.62)
     }
 
-    private func logMaterialAppearance(
-        containerSize: CGSize,
-        isLiquidMaterial: Bool,
-        prefersHighContrast: Bool,
-        prefersReducedTransparency: Bool
-    ) {
-        GlassDebugLog.log(
-            """
-            OverlayNotificationView出现: material=\(overlayMaterial.rawValue), liquidStyle=\(liquidGlassStyle.displayName), isLiquid=\(isLiquidMaterial), size=\(Int(overlayWidth))x\(Int(overlayHeight)), container=\(Int(containerSize.width))x\(Int(containerSize.height)), cornerRadius=\(String(format: "%.1f", cornerRadius)), opacity=\(String(format: "%.2f", backgroundOpacity)), useBlur=\(useBlur), blurIntensity=\(String(format: "%.2f", blurIntensity)), reducedTransparency=\(prefersReducedTransparency), highContrast=\(prefersHighContrast)
-            """
-        )
-        if isLiquidMaterial {
-            GlassDebugLog.log("液态玻璃路径: macOS 26 使用 NSGlassEffectView.contentView；tintMode=\(glassTintMode.displayName), tintAlpha=\(String(format: "%.3f", glassTintAlpha)), textColor=\(glassTextColorMode.displayName)；overlayOpacity/useBlur/blurIntensity 不参与当前液态玻璃背景。")
-        }
-    }
 }
 
 private struct OverlayNotificationMaterialModifier: ViewModifier {
@@ -546,7 +518,6 @@ private struct NSGlassEffectHostView<Content: View>: NSViewRepresentable {
         let glassView = NSGlassEffectView()
         applyConfiguration(to: glassView)
         glassView.contentView = makeHostingView(in: glassView)
-        logGlassViewState(glassView, phase: "makeNSView")
         return glassView
     }
 
@@ -557,7 +528,6 @@ private struct NSGlassEffectHostView<Content: View>: NSViewRepresentable {
             glassView.contentView = makeHostingView(in: glassView)
         }
         applyConfiguration(to: glassView)
-        logGlassViewState(glassView, phase: "updateNSView")
     }
 
     private func makeHostingView(in glassView: NSGlassEffectView) -> NSHostingView<Content> {
@@ -620,27 +590,6 @@ private struct NSGlassEffectHostView<Content: View>: NSViewRepresentable {
         setGlassSubduedState(glassView, style.subduedState)
     }
 
-    private func logGlassViewState(_ glassView: NSGlassEffectView, phase: String) {
-        GlassDebugLog.log(
-            """
-            NSGlassEffectView.\(phase): style=\(style.displayName), base=\(style.baseGlassStyle.displayName), nsStyle=\(style.nsGlassStyle == .regular ? "regular" : "clear"), tintMode=\(tintMode.displayName), tint=\(describeColor(resolvedTintColor)), cornerRadius=\(String(format: "%.1f", cornerRadius)), variant=\(style.variantValue), scrim=\(style.scrimState), subdued=\(style.subduedState), selectors(variant/scrim/subdued)=\(glassView.responds(to: NSSelectorFromString("set_variant:")))/\(glassView.responds(to: NSSelectorFromString("set_scrimState:")))/\(glassView.responds(to: NSSelectorFromString("set_subduedState:"))), frame=\(Int(glassView.frame.width))x\(Int(glassView.frame.height)), contentView=\(glassView.contentView.map { String(describing: type(of: $0)) } ?? "nil")
-            """
-        )
-    }
-
-    private func describeColor(_ color: NSColor?) -> String {
-        guard let color else { return "nil" }
-        if let rgb = color.usingColorSpace(.sRGB) {
-            return String(
-                format: "rgba(%.3f, %.3f, %.3f, %.3f)",
-                rgb.redComponent,
-                rgb.greenComponent,
-                rgb.blueComponent,
-                rgb.alphaComponent
-            )
-        }
-        return "colorspace=\(color.colorSpace.localizedName ?? "unknown"), alpha=\(String(format: "%.3f", color.alphaComponent))"
-    }
 }
 
 @available(macOS 26.0, *)

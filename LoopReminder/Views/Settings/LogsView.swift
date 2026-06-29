@@ -53,14 +53,7 @@ struct LogsView: View {
                         )
                     } else {
                         ForEach(Array(logs.enumerated()), id: \.offset) { _, line in
-                            Text(sanitize(line))
-                                .font(.system(.callout, design: .monospaced))
-                                .lineLimit(1)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.vertical, DesignTokens.Spacing.xxs)
-                                .padding(.horizontal, DesignTokens.Spacing.sm)
-                                .background(Color(.textBackgroundColor))
-                                .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Layout.cornerRadiusSmall))
+                            LogLineView(text: sanitize(line))
                         }
                     }
                 }
@@ -84,5 +77,27 @@ struct LogsView: View {
             }
         }
         return result
+    }
+}
+
+private struct LogLineView: View {
+    let text: String
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Text(text)
+            .font(.system(.callout, design: .monospaced))
+            .lineLimit(isHovered ? nil : 1)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, DesignTokens.Spacing.xxs)
+            .padding(.horizontal, DesignTokens.Spacing.sm)
+            .background(Color(.textBackgroundColor))
+            .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Layout.cornerRadiusSmall))
+            .onHover { hovering in
+                isHovered = hovering
+            }
+            .help(text)
     }
 }

@@ -453,7 +453,6 @@ final class ReminderController: ObservableObject {
             glassTextColorMode: baseStyle.glassTextColorMode
         )
 
-        logger.log("[材质排查] 发送外观预览通知: style=\(settings.liquidGlassStyle.displayName), material=\(settings.overlayMaterial.rawValue)")
         await sendNotification(
             for: previewTimer,
             settings: settings,
@@ -928,12 +927,6 @@ final class ReminderController: ObservableObject {
         
         let window = makeOverlayWindow(contentRect: windowRect, settings: settings)
 
-        logger.log(
-            """
-            [材质排查] 创建真实通知窗口: host=\(overlayWindowHostDescription(settings: settings)), class=\(String(describing: type(of: window))), timer=\(timer.displayName), rect=\(Int(windowRect.width))x\(Int(windowRect.height))@(\(Int(windowRect.minX)),\(Int(windowRect.minY))), isOpaque=\(window.isOpaque), background=\(String(describing: window.backgroundColor)), level=\(window.level.rawValue), hasShadow=\(window.hasShadow), styleMask=\(window.styleMask.rawValue), material=\(style.overlayMaterial.rawValue), liquidStyle=\(style.liquidGlassStyle.displayName), tintMode=\(style.glassTintMode.displayName), tintAlpha=\(String(format: "%.3f", style.glassTintAlpha)), textColor=\(style.glassTextColorMode.displayName), overlayOpacity=\(String(format: "%.2f", style.backgroundOpacity)), useBlur=\(style.useBlur), blurIntensity=\(String(format: "%.2f", style.blurIntensity)), cornerRadius=\(String(format: "%.1f", style.cornerRadius))
-            """
-        )
-        
         let overlayView = OverlayNotificationView(
             emoji: content.emoji,
             title: content.title,

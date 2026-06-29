@@ -15,6 +15,9 @@ private enum TimerEditorMetrics {
     static let sheetHorizontalPadding: CGFloat = 28
     static let sheetVerticalPadding: CGFloat = 24
     static let sheetContentWidth: CGFloat = sheetWidth - sheetHorizontalPadding * 2
+    static let panelCornerRadius: CGFloat = 14
+    static let controlCornerRadius: CGFloat = 12
+    static let smallCornerRadius: CGFloat = 8
 }
 
 extension Notification.Name {
@@ -277,6 +280,11 @@ private struct TimerEmptyStateView: View {
     }
 }
 
+private enum TimerRowMetrics {
+    static let rowCornerRadius: CGFloat = 16
+    static let controlCornerRadius: CGFloat = 12
+}
+
 private struct TimerManagerListItemView: View {
     @Binding var timer: TimerItem
     let events: [ReminderEvent]
@@ -288,6 +296,7 @@ private struct TimerManagerListItemView: View {
     let onDelete: () -> Void
 
     @State private var isHovering = false
+    @State private var isToggleHovering = false
     @State private var isEditHovering = false
     @State private var isDeleteHovering = false
     @State private var now = Date()
@@ -296,58 +305,88 @@ private struct TimerManagerListItemView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: DesignTokens.Spacing.md) {
+            HStack(alignment: .center, spacing: DesignTokens.Spacing.md) {
                 Button {
                     onToggleRunning()
                 } label: {
-                    Image(systemName: timer.isRunning ? "pause.circle.fill" : "play.circle.fill")
-                        .font(.title2)
-                        .foregroundStyle(timer.isRunning ? .orange : .green)
-                        .frame(width: 28, height: 28)
+                    Image(systemName: timer.isRunning ? "pause.fill" : "play.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(toggleIconColor)
+                        .frame(width: 44, height: 44)
+                        .background(
+                            RoundedRectangle(cornerRadius: TimerRowMetrics.controlCornerRadius)
+                                .fill(toggleBackgroundColor)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: TimerRowMetrics.controlCornerRadius)
+                                .stroke(toggleBorderColor, lineWidth: 1)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: TimerRowMetrics.controlCornerRadius))
                 }
                 .buttonStyle(.plain)
                 .disabled(!timer.isContentValid())
-                .help(timer.isRunning ? "暂停计时器" : "启动计时器")
-
-                HStack(spacing: DesignTokens.Spacing.sm) {
-                    Text(timer.emoji)
-                        .font(.title2)
-                        .frame(width: 30)
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 4) {
-                            Text(timer.displayName)
-                                .font(.headline)
-                                .lineLimit(1)
-                            if !timer.body.isEmpty {
-                                Text(timer.body)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
-                            }
-                        }
-
-                        HStack(spacing: 6) {
-                            Text(scheduleTypeSummary)
-                            Circle()
-                                .fill(timer.customColor?.toColor() ?? .secondary)
-                                .frame(width: 8, height: 8)
-                        }
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                .onHover { hovering in
+                    withAnimation(.easeInOut(duration: 0.12)) {
+                        isToggleHovering = hovering
                     }
                 }
+                .help(timer.isRunning ? "暂停计时器" : "启动计时器")
 
-                Spacer()
+                Text(timer.emoji)
+                    .font(.system(size: 30))
+                    .frame(width: 44, height: 44)
+                    .background(
+                        RoundedRectangle(cornerRadius: TimerRowMetrics.controlCornerRadius)
+                            .fill((timer.customColor?.toColor() ?? .accentColor).opacity(0.08))
+                    )
 
-                if isHovering {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack(spacing: DesignTokens.Spacing.sm) {
+                        Text(timer.displayName)
+                            .font(.headline)
+                            .lineLimit(1)
+
+                        TimerTypeBadge(text: reminderBadgeText)
+                    }
+
+                    if !bodySummary.isEmpty {
+                        Text(bodySummary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack(spacing: DesignTokens.Spacing.xs) {
+                    TimerRowActionButton(
+                        title: "编辑",
+                        systemImage: "slider.horizontal.3",
+                        isHovered: isEditHovering,
+                        isDisabled: timer.isRunning,
+                        tint: .secondary
+                    ) {
+                        onEdit()
+                    }
+                    .onHover { hovering in
+                        withAnimation(.easeInOut(duration: 0.12)) {
+                            isEditHovering = hovering
+                        }
+                    }
+                    .disabled(timer.isRunning)
+                    .help(timer.isRunning ? "请先暂停才能编辑" : "编辑")
+
                     Button {
                         onDelete()
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(.red)
-                            .opacity(isDeleteHovering ? 0.7 : 1)
+                        Image(systemName: "trash")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(isDeleteHovering ? .red : .secondary)
+                            .frame(width: 34, height: 30)
+                            .background(
+                                RoundedRectangle(cornerRadius: TimerRowMetrics.controlCornerRadius)
+                                    .fill(isDeleteHovering ? Color.red.opacity(0.10) : Color.secondary.opacity(0.055))
+                            )
                     }
                     .buttonStyle(.plain)
                     .onHover { hovering in
@@ -355,31 +394,9 @@ private struct TimerManagerListItemView: View {
                             isDeleteHovering = hovering
                         }
                     }
-                    .transition(.opacity.combined(with: .scale))
                     .help("删除")
                 }
-
-                Button {
-                    onEdit()
-                } label: {
-                    Label("编辑", systemImage: "slider.horizontal.3")
-                        .font(.callout)
-                        .foregroundStyle(isEditHovering ? .primary : .secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(
-                            RoundedRectangle(cornerRadius: 6)
-                                .fill(isEditHovering ? Color.secondary.opacity(0.12) : Color.secondary.opacity(0.06))
-                        )
-                }
-                .buttonStyle(.plain)
-                .onHover { hovering in
-                    withAnimation(.easeInOut(duration: 0.12)) {
-                        isEditHovering = hovering
-                    }
-                }
-                .disabled(timer.isRunning)
-                .help(timer.isRunning ? "请先暂停才能编辑" : "编辑")
+                .frame(width: 112, alignment: .trailing)
             }
             .padding(DesignTokens.Spacing.md)
             .contentShape(Rectangle())
@@ -398,14 +415,14 @@ private struct TimerManagerListItemView: View {
             }
         }
         .background(
-            RoundedRectangle(cornerRadius: DesignTokens.Layout.cornerRadius)
-                .fill(Color.secondary.opacity(0.055))
+            RoundedRectangle(cornerRadius: TimerRowMetrics.rowCornerRadius)
+                .fill(rowBackgroundColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: DesignTokens.Layout.cornerRadius)
+            RoundedRectangle(cornerRadius: TimerRowMetrics.rowCornerRadius)
                 .stroke(timer.isRunning ? Color.green.opacity(0.28) : Color.secondary.opacity(0.12), lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Layout.cornerRadius))
+        .clipShape(RoundedRectangle(cornerRadius: TimerRowMetrics.rowCornerRadius))
         .onHover { hovering in
             withAnimation(.easeInOut(duration: 0.16)) {
                 isHovering = hovering
@@ -437,18 +454,120 @@ private struct TimerManagerListItemView: View {
         }
     }
 
-    private var scheduleTypeSummary: String {
+    private var reminderBadgeText: String {
         switch timer.reminderType {
         case .interval:
-            return "间隔 · 每 \(timer.formattedInterval())"
+            return "间隔｜\(scheduleRuleSummary)"
+        case .scheduled:
+            return "定点｜\(scheduleRuleSummary)"
+        }
+    }
+
+    private var toggleIconColor: Color {
+        guard timer.isContentValid() else {
+            return Color.secondary.opacity(0.45)
+        }
+
+        if timer.isRunning {
+            return Color.orange.opacity(isToggleHovering ? 1 : 0.88)
+        }
+
+        return Color.green.opacity(isToggleHovering ? 1 : 0.88)
+    }
+
+    private var toggleBackgroundColor: Color {
+        guard timer.isContentValid() else {
+            return Color.secondary.opacity(0.08)
+        }
+
+        if timer.isRunning {
+            return Color.orange.opacity(isToggleHovering ? 0.17 : 0.12)
+        }
+
+        return Color.green.opacity(isToggleHovering ? 0.15 : 0.10)
+    }
+
+    private var toggleBorderColor: Color {
+        guard timer.isContentValid() else {
+            return Color.secondary.opacity(0.12)
+        }
+
+        if timer.isRunning {
+            return Color.orange.opacity(isToggleHovering ? 0.28 : 0.18)
+        }
+
+        return Color.green.opacity(isToggleHovering ? 0.24 : 0.14)
+    }
+
+    private var scheduleRuleSummary: String {
+        switch timer.reminderType {
+        case .interval:
+            return "每 \(timer.formattedInterval())"
         case .scheduled:
             let enabled = timer.scheduledTimes.filter(\.enabled).sorted { ($0.hour, $0.minute) < ($1.hour, $1.minute) }
-            if enabled.isEmpty {
-                return "定点 · 无启用时间"
-            }
+            guard !enabled.isEmpty else { return "无启用时间" }
             let values = enabled.prefix(3).map { $0.formattedTime() }.joined(separator: " / ")
-            return enabled.count > 3 ? "定点 · \(values) 等 \(enabled.count) 个" : "定点 · \(values)"
+            return enabled.count > 3 ? "\(values) 等 \(enabled.count) 个" : values
         }
+    }
+
+    private var bodySummary: String {
+        timer.body.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var rowBackgroundColor: Color {
+        if timer.isRunning {
+            return Color.green.opacity(isHovering ? 0.075 : 0.055)
+        }
+
+        return Color.secondary.opacity(isHovering ? 0.075 : 0.055)
+    }
+}
+
+private struct TimerTypeBadge: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.caption2)
+            .fontWeight(.semibold)
+            .foregroundStyle(Color.secondary.opacity(0.78))
+            .lineLimit(1)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 3)
+            .background(
+                Capsule()
+                    .fill(Color.secondary.opacity(0.055))
+            )
+            .overlay(
+                Capsule()
+                    .stroke(Color.secondary.opacity(0.095), lineWidth: 1)
+            )
+    }
+}
+
+private struct TimerRowActionButton: View {
+    let title: String
+    let systemImage: String
+    let isHovered: Bool
+    let isDisabled: Bool
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.callout)
+                .fontWeight(.medium)
+                .foregroundStyle(isDisabled ? Color.secondary.opacity(0.35) : (isHovered ? .primary : tint))
+                .padding(.horizontal, 8)
+                .frame(height: 30)
+                .background(
+                    RoundedRectangle(cornerRadius: TimerRowMetrics.controlCornerRadius)
+                        .fill(isHovered && !isDisabled ? Color.secondary.opacity(0.12) : Color.secondary.opacity(0.055))
+                )
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -539,6 +658,7 @@ private struct TimerDetailView: View {
 
             HStack(alignment: .top, spacing: DesignTokens.Spacing.xl) {
                 VStack(alignment: .leading, spacing: 6) {
+                    TimerColorDetailLine(timerColor: timer.customColor)
                     DetailLine(label: "提示音", value: timer.soundName ?? "无")
                     DetailLine(label: "停留", value: timer.stayDurationMode == .fixed ? "\(Int(timer.stayDurationSeconds)) 秒" : "直到下次通知")
                     if timer.reminderType == .scheduled {
@@ -597,6 +717,41 @@ private struct DetailLine: View {
             Text(value)
                 .font(.caption)
                 .foregroundStyle(.primary)
+        }
+    }
+}
+
+private struct TimerColorDetailLine: View {
+    let timerColor: TimerItem.TimerColor?
+
+    private var color: Color {
+        timerColor?.toColor() ?? .secondary
+    }
+
+    private var label: String {
+        timerColor?.colorType.rawValue ?? "默认"
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Text("颜色")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(width: 42, alignment: .leading)
+
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 9, height: 9)
+                    .overlay(
+                        Circle()
+                            .stroke(Color.secondary.opacity(0.28), lineWidth: 1)
+                    )
+
+                Text(label)
+                    .font(.caption)
+                    .foregroundStyle(.primary)
+            }
         }
     }
 }
@@ -936,7 +1091,7 @@ private struct TimerEditorSheet: View {
             }
             .padding(DesignTokens.Spacing.md)
             .background(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: TimerEditorMetrics.panelCornerRadius)
                     .fill(Color.secondary.opacity(0.055))
             )
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1101,9 +1256,9 @@ private struct ReminderTypeSelector: View {
                 selection = .scheduled
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 7))
+        .clipShape(RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius))
         .overlay(
-            RoundedRectangle(cornerRadius: 7)
+            RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                 .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
         )
     }
@@ -1156,9 +1311,9 @@ private struct StayDurationEditor: View {
                     mode = .fixed
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .clipShape(RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius))
             .overlay(
-                RoundedRectangle(cornerRadius: 7)
+                RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                     .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
             )
 
@@ -1395,7 +1550,7 @@ private struct ColorOverrideEditor: View {
             .help("编辑自定义颜色")
         }
         .background(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                 .fill(Color(nsColor: .controlBackgroundColor).opacity(0.7))
         )
     }
@@ -1451,11 +1606,11 @@ private struct CustomColorPaletteEditor: View {
                 Text("自定义颜色")
                     .font(.headline)
                 Spacer()
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                     .fill(color)
                     .frame(width: 64, height: 34)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                             .stroke(Color.secondary.opacity(0.24), lineWidth: 1)
                     )
             }
@@ -1473,7 +1628,7 @@ private struct CustomColorPaletteEditor: View {
                 }
             }
             .padding(8)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Color.secondary.opacity(0.07)))
+            .background(RoundedRectangle(cornerRadius: TimerEditorMetrics.panelCornerRadius).fill(Color.secondary.opacity(0.07)))
 
             HStack(spacing: DesignTokens.Spacing.sm) {
                 Text("明度")
@@ -1512,11 +1667,11 @@ private struct CustomColorPaletteEditor: View {
         return Button {
             updateColor(hue: hue, saturation: saturation, brightness: brightness)
         } label: {
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: TimerEditorMetrics.smallCornerRadius)
                 .fill(cellColor)
                 .frame(width: 16, height: 18)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 6)
+                    RoundedRectangle(cornerRadius: TimerEditorMetrics.smallCornerRadius)
                         .stroke(Color.secondary.opacity(0.14), lineWidth: 1)
                 )
         }
@@ -1569,11 +1724,11 @@ private struct ColorChoiceButton<Swatch: View>: View {
                 .frame(width: 16, height: 16)
                 .frame(width: 26, height: 28)
                 .background(
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                         .fill(isSelected ? Color.accentColor.opacity(0.13) : Color.clear)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                         .stroke(isSelected ? Color.accentColor.opacity(0.36) : Color.clear, lineWidth: 1)
                 )
                 .contentShape(Rectangle())
@@ -1604,11 +1759,11 @@ private struct ColorLabelChoiceButton<Swatch: View>: View {
             .padding(.horizontal, 9)
             .frame(height: 30)
             .background(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                     .fill(isSelected ? Color.accentColor.opacity(0.13) : Color(nsColor: .controlBackgroundColor).opacity(0.72))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                     .stroke(isSelected ? Color.accentColor.opacity(0.36) : Color.secondary.opacity(0.14), lineWidth: 1)
             )
             .contentShape(Rectangle())
@@ -1645,11 +1800,11 @@ private struct ColorTextChoiceButton<Swatch: View>: View {
             .padding(.horizontal, 9)
             .frame(height: 34)
             .background(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                     .fill(isSelected ? Color.accentColor.opacity(0.13) : Color(nsColor: .controlBackgroundColor).opacity(0.72))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                     .stroke(isSelected ? Color.accentColor.opacity(0.36) : Color.secondary.opacity(0.14), lineWidth: 1)
             )
             .contentShape(Rectangle())
@@ -1702,11 +1857,11 @@ private struct SoundSelectionEditor: View {
         }
         .frame(width: TimerEditorMetrics.compoundControlWidth)
         .background(
-            RoundedRectangle(cornerRadius: 7)
+            RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 7)
+            RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                 .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
         )
         .fixedSize()
@@ -1782,7 +1937,7 @@ private struct NotificationContentEditor: View {
             }
             .padding(DesignTokens.Spacing.md)
             .background(
-                RoundedRectangle(cornerRadius: 8)
+                RoundedRectangle(cornerRadius: TimerEditorMetrics.panelCornerRadius)
                     .fill(Color.secondary.opacity(0.06))
             )
         }
@@ -1907,11 +2062,11 @@ private struct EmojiPickerPopover: View {
                 .font(.title3)
                 .frame(width: 34, height: 34)
                 .background(
-                    RoundedRectangle(cornerRadius: 7)
+                    RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                         .fill(emoji == selectedEmoji ? Color.accentColor.opacity(0.16) : Color(nsColor: .controlBackgroundColor).opacity(0.65))
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 7)
+                    RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                         .stroke(emoji == selectedEmoji ? Color.accentColor.opacity(0.45) : Color.secondary.opacity(0.12), lineWidth: 1)
                 )
         }
@@ -1985,11 +2140,11 @@ private struct IntervalConfigEditor: View {
         }
         .frame(width: TimerEditorMetrics.compoundControlWidth)
         .background(
-            RoundedRectangle(cornerRadius: 7)
+            RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                 .fill(Color(nsColor: .controlBackgroundColor))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 7)
+            RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                 .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
         )
         .fixedSize()
@@ -2130,7 +2285,7 @@ private struct ScheduledTimePill: View {
                     .frame(width: 58, height: 24)
             }
             .buttonStyle(.plain)
-            .contentShape(RoundedRectangle(cornerRadius: 6))
+            .contentShape(RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius))
             .popover(isPresented: $isPickerPresented) {
                 TimeGridPicker(time: $time, disabledKeys: existingKeys) {
                     isPickerPresented = false
@@ -2250,11 +2405,11 @@ private struct TimeGridPicker: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
         .background(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                 .fill(Color.accentColor.opacity(0.08))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 6)
+            RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
                 .stroke(isKeyboardFocused ? Color.accentColor.opacity(0.55) : Color.secondary.opacity(0.18), lineWidth: 1)
         )
         .contentShape(Rectangle())
@@ -2272,7 +2427,7 @@ private struct TimeGridPicker: View {
             .frame(width: 30)
             .padding(.vertical, 1)
             .background(
-                RoundedRectangle(cornerRadius: 4)
+                RoundedRectangle(cornerRadius: TimerEditorMetrics.smallCornerRadius)
                     .fill(inputState.focusedSegment == segment ? Color.accentColor.opacity(0.16) : Color.clear)
             )
             .onTapGesture {
@@ -2334,7 +2489,7 @@ private struct TimeGridPicker: View {
                 .monospacedDigit()
                 .frame(width: width, height: 24)
                 .background(
-                    RoundedRectangle(cornerRadius: 5)
+                    RoundedRectangle(cornerRadius: TimerEditorMetrics.smallCornerRadius)
                         .fill(selected ? Color.accentColor.opacity(0.2) : Color.secondary.opacity(0.08))
                 )
         }
