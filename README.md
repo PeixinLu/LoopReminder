@@ -19,7 +19,7 @@
 ## 特性总览
 
 <p align="center">
-  <video src="Assets/notice-preview.mp4" controls width="700"></video>
+  <img src="Assets/notice-preview.gif" width="100%" alt="基础设置">
 </p>
 
 #### 1. 灵活提醒
@@ -27,7 +27,7 @@
 支持间隔提醒或者定点提醒
 
 <p align="center">
-  <img src="Assets/preview-setting-basic.png" width="280" alt="基础设置">
+  <img src="Assets/preview-setting-basic.png" width="100%" alt="基础设置">
 </p>
 
 #### 2. 超高度自定义
@@ -35,7 +35,7 @@
 提供丰富的外观参数定制
 
 <p align="center">
-  <img src="Assets/preview-setting-style.png" width="280" alt="外观设置">
+  <img src="Assets/preview-setting-style.png" width="90%" alt="外观设置">
 </p>
 
 #### 3. 丰富的液态玻璃效果
@@ -43,7 +43,7 @@
 macOS26下提供丰富的液态玻璃外观预设，无论是极致透明还是针对复杂背景下文本可读性特别优化的预设，总有一款满足你
 
 <p align="center">
-  <video src="Assets/liquidglass.mp4" controls width="700"></video>
+  <img src="Assets/2-liquidglass.gif" width="100%" alt="基础设置">
 </p>
 
 #### 4. 轻量高效
