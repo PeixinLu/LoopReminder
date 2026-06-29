@@ -12,6 +12,12 @@
   <a href="README.md">中文</a> | <a href="README.en.md">English</a>
 </p>
 
+<p align="center">
+  <a href="https://peixinlu.github.io/MacOS-LoopRemider/">
+    <img src="https://img.shields.io/badge/%E8%AE%BF%E9%97%AE%E5%AE%98%E7%BD%91-Loop%20Reminder-2ea44f?style=for-the-badge" alt="访问官网">
+  </a>
+</p>
+
 ## 下载
 
 - **快上车！ ➡️**：**[Releases](https://github.com/PeixinLu/MacOS-LoopRemider/releases)**
