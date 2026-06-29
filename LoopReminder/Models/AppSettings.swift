@@ -201,6 +201,9 @@ final class AppSettings: ObservableObject {
     @Published var timerCustomColorPresets: [TimerCustomColorPreset]
     @Published var recentEmojis: [String]
 
+    // 编辑状态（跨窗口共享，非持久化）
+    @Published var editingTimerID: UUID?
+
     // 材质选项
     @Published var overlayMaterial: OverlayMaterial
     @Published var liquidGlassStyle: LiquidGlassStyle
@@ -416,7 +419,7 @@ final class AppSettings: ObservableObject {
                 )
                 return LiquidGlassPresetDefinition(
                     id: self,
-                    name: "标准【无色】",
+                    name: "优化",
                     summary: "磨砂玻璃，做了文本可读性优化，但是不支持自定义背景颜色",
                     supportsCustomColor: false,
                     light: mode,

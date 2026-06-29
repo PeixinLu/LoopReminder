@@ -33,7 +33,7 @@ struct TimerManagementView: View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.md) {
             PageHeader(
                 icon: "bell.badge.fill",
-                iconColor: .blue,
+                iconColor: .accentColor,
                 title: "计时器管理",
                 subtitle: "管理您的循环提醒计时器"
             ) {
@@ -71,9 +71,10 @@ struct TimerManagementView: View {
                             )
                         }
 
-                        InfoHint("计时器颜色、提示音和通知停留时间均可在单个计时器中独立配置", color: .blue)
+                        InfoHint("计时器颜色、提示音和通知停留时间均可在单个计时器中独立配置", color: .accentColor)
                     }
                     .padding(.bottom, DesignTokens.Spacing.xl)
+                    .padding(.trailing, 10)
                 }
             }
         }
@@ -82,6 +83,10 @@ struct TimerManagementView: View {
                 saveTimer(savedTimer, originalID: originalID)
             }
             .environmentObject(settings)
+        }
+        .onChange(of: editingDraft) { _, newDraft in
+            // 同步编辑状态到 AppSettings，供菜单栏检查编辑锁
+            settings.editingTimerID = newDraft?.originalID
         }
         .alert(
             "删除计时器？",
@@ -222,7 +227,7 @@ struct TimerManagementView: View {
     }
 }
 
-struct TimerEditorDraft: Identifiable {
+struct TimerEditorDraft: Identifiable, Equatable {
     let id = UUID()
     let originalID: UUID?
     let timer: TimerItem
@@ -233,6 +238,10 @@ struct TimerEditorDraft: Identifiable {
 
     static func edit(_ timer: TimerItem) -> TimerEditorDraft {
         TimerEditorDraft(originalID: timer.id, timer: timer)
+    }
+
+    static func == (lhs: TimerEditorDraft, rhs: TimerEditorDraft) -> Bool {
+        lhs.id == rhs.id
     }
 }
 

@@ -54,6 +54,7 @@ struct StyleSettingsView: View {
                     iconSizeSection
                 }
                 .padding(.bottom, DesignTokens.Spacing.xl)
+                .padding(.trailing, 10)
             }
         }
         .onAppear {
@@ -350,14 +351,12 @@ struct StyleSettingsView: View {
     private var materialSection: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
             SettingRow(icon: "cube.transparent", iconColor: .accentColor, title: "材质") {
-                Picker("", selection: $settings.overlayMaterial) {
-                    ForEach(AppSettings.OverlayMaterial.allCases, id: \.self) { material in
-                        Text(material.rawValue).tag(material)
-                    }
+                    FusedCapsuleGroup(
+                        options: AppSettings.OverlayMaterial.allCases,
+                        selection: $settings.overlayMaterial,
+                        labelFor: { $0.rawValue }
+                    )
                 }
-                .pickerStyle(.segmented)
-                .fixedSize()
-            }
 
             if settings.overlayMaterial == .basic {
                 // 基本材质：显示模糊效果选项
@@ -381,91 +380,65 @@ struct StyleSettingsView: View {
                     }
                 }
 
-                InfoHint("基本材质使用传统模糊效果，提供稳定的视觉体验", color: .accentColor)
+                ControlAreaInfoHint("基本材质使用传统模糊效果，提供稳定的视觉体验", color: .accentColor)
             } else {
-                SettingRow(icon: "sparkles", iconColor: .accentColor, title: "液态玻璃预设", fillWidth: true) {
+                ControlAreaInfoHint("液态玻璃是 macOS 26 新增的视觉效果，提供更通透的质感", color: .accentColor)
+                SettingRow(icon: "sparkles", iconColor: .accentColor, title: "液态玻璃预设") {
                     liquidGlassPresetSelector
                 }
 
-                InfoHint(selectedLiquidGlassPresetDefinition.summary, color: .accentColor)
+                ControlAreaInfoHint(selectedLiquidGlassPresetDefinition.summary, color: .accentColor)
 
                 if selectedLiquidGlassPresetDefinition.supportsCustomColor {
                     SettingRow(icon: "paintpalette.fill", iconColor: .accentColor, title: "背景颜色") {
-                        liquidGlassColorCapsule
+                        liquidGlassColorSourceSelector
                     }
                 } else {
-                    InfoHint("该预设不支持自定义背景颜色，将使用预设默认参数。", color: .secondary)
+                    ControlAreaInfoHint("该预设不支持自定义背景颜色，将使用预设默认参数。", color: .secondary)
                 }
-
-                InfoHint("液态玻璃是 macOS 26 新增的视觉效果，提供更通透的质感", color: .accentColor)
             }
         }
     }
 
     private var liquidGlassPresetSelector: some View {
-        FlowLayout(spacing: 8) {
-            ForEach(AppSettings.LiquidGlassPresetID.allCases, id: \.self) { presetID in
-                liquidGlassPresetButton(presetID)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        FusedCapsuleGroup(
+            options: AppSettings.LiquidGlassPresetID.allCases,
+            selection: Binding(
+                get: { settings.liquidGlassPreset },
+                set: { newPreset in
+                    settings.liquidGlassPreset = newPreset
+                    settings.liquidGlassPresetColorSource = .presetDefault
+                    isColorPopoverPresented = false
+                }
+            ),
+            labelFor: { $0.definition.name },
+            uniformWidth: true
+        )
     }
 
-    private func liquidGlassPresetButton(_ presetID: AppSettings.LiquidGlassPresetID) -> some View {
-        let definition = presetID.definition
-        let isSelected = settings.liquidGlassPreset == presetID
-
-        return Button {
-            settings.liquidGlassPreset = presetID
-            settings.liquidGlassPresetColorSource = .presetDefault
-            isColorPopoverPresented = false
-        } label: {
-            Text(definition.name)
-                .font(.caption)
-                .fontWeight(isSelected ? .semibold : .regular)
-                .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
-                .lineLimit(1)
-                .padding(.horizontal, 12)
-                .frame(height: 30)
-                .background(
-                    Capsule()
-                        .fill(isSelected ? Color.accentColor.opacity(0.14) : Color(nsColor: .controlBackgroundColor).opacity(0.78))
-                )
-                .overlay(
-                    Capsule()
-                        .stroke(isSelected ? Color.accentColor.opacity(0.55) : Color.secondary.opacity(0.18), lineWidth: 1)
-                )
+    private var liquidGlassColorSourceSelector: some View {
+        FusedCapsuleGroup(
+            options: AppSettings.LiquidGlassPresetColorSource.allCases,
+            selection: Binding(
+                get: { settings.liquidGlassPresetColorSource },
+                set: { newSource in
+                    if newSource == .customNotificationColor
+                        && settings.liquidGlassPresetColorSource != .customNotificationColor {
+                        settings.overlayCustomColor = settings.overlayGlassTintColor
+                        isColorPopoverPresented = true
+                    } else if newSource == .presetDefault {
+                        isColorPopoverPresented = false
+                    }
+                    settings.liquidGlassPresetColorSource = newSource
+                }
+            ),
+            labelFor: { $0.rawValue }
+        ) { _ in
+            Circle()
+                .fill(settings.overlayGlassTintColor)
+                .frame(width: 12, height: 12)
+                .overlay(Circle().stroke(Color.secondary.opacity(0.28), lineWidth: 1))
         }
-        .buttonStyle(.plain)
-        .help(definition.summary)
-    }
-
-    private var liquidGlassColorCapsule: some View {
-        let isCustomColor = settings.liquidGlassPresetColorSource == .customNotificationColor
-
-        return Button {
-            if !isCustomColor {
-                settings.overlayCustomColor = settings.overlayGlassTintColor
-            }
-            settings.liquidGlassPresetColorSource = .customNotificationColor
-            isColorPopoverPresented = true
-        } label: {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(settings.overlayGlassTintColor)
-                    .frame(width: 16, height: 16)
-                    .overlay(Circle().stroke(Color.secondary.opacity(0.28), lineWidth: 1))
-
-                Text(isCustomColor ? "自定义颜色" : "预设颜色")
-                    .font(.caption)
-                    .foregroundStyle(.primary)
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 30)
-            .background(Capsule().fill(Color(nsColor: .controlBackgroundColor).opacity(0.78)))
-            .overlay(Capsule().stroke(Color.secondary.opacity(0.18), lineWidth: 1))
-        }
-        .buttonStyle(.plain)
         .popover(isPresented: $isColorPopoverPresented) {
             CustomColorPalettePopover(color: $settings.overlayCustomColor) { color in
                 settings.overlayCustomColor = color
@@ -515,13 +488,22 @@ struct SettingRow<Content: View>: View {
             }
             .frame(width: labelWidth ?? DesignTokens.Layout.labelWidth, alignment: .leading)
 
-            if !fillWidth {
-                Spacer()
-            }
-
             content()
                 .layoutPriority(1)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: fillWidth ? .leading : .trailing
+                )
         }
+        .frame(maxWidth: .infinity)
         .padding(.vertical, DesignTokens.Layout.rowVerticalPadding)
     }
+}
+
+
+#Preview {
+    StyleSettingsView()
+        .environmentObject(AppSettings())
+        .environmentObject(ReminderController())
+        .frame(width: 680, height: 700)
 }

@@ -11,7 +11,7 @@ struct AnimationSettingsView: View {
             // 页面标题 - 固定
             PageHeader(
                 icon: "wand.and.stars",
-                iconColor: .purple,
+                iconColor: .accentColor,
                 title: "动画和定位",
                 subtitle: "自定义通知动画和位置"
             )
@@ -30,6 +30,7 @@ struct AnimationSettingsView: View {
                     animationTypeSection
                 }
                 .padding(.bottom, DesignTokens.Spacing.xl)
+                .padding(.trailing, 10)
             }
         }
         .onAppear {
@@ -86,53 +87,137 @@ struct AnimationSettingsView: View {
 
     private var screenSelectionSection: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
-            SettingRow(icon: "display.2", iconColor: .indigo, title: "显示屏幕") {
-                Picker("", selection: $settings.screenSelection) {
-                    ForEach(AppSettings.ScreenSelection.allCases, id: \.self) { selection in
-                        Text(selection.rawValue).tag(selection)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .fixedSize()
+            SettingRow(icon: "display.2", iconColor: .accentColor, title: "显示屏幕") {
+                FusedCapsuleGroup(
+                    options: AppSettings.ScreenSelection.allCases,
+                    selection: $settings.screenSelection,
+                    labelFor: { $0.rawValue }
+                )
             }
 
-            InfoHint(settings.screenSelection.description, color: .indigo)
+            InfoHint(settings.screenSelection.description, color: .accentColor)
         }
     }
 
     private var positionSection: some View {
-        SettingRow(icon: "location.fill", iconColor: .blue, title: "位置") {
-            Picker("", selection: $settings.overlayPosition) {
-                ForEach(AppSettings.OverlayPosition.allCases, id: \.self) { position in
-                    Text(position.rawValue).tag(position)
-                }
-            }
-            .pickerStyle(.menu)
-            .fixedSize()
+        SettingRow(icon: "location.fill", iconColor: .accentColor, title: "位置") {
+            PositionGridPicker(selection: $settings.overlayPosition)
         }
     }
 
     private var animationTypeSection: some View {
-        SettingRow(icon: "sparkles", iconColor: .pink, title: "动画类型") {
-            Picker("", selection: $settings.animationStyle) {
-                ForEach(AppSettings.AnimationStyle.allCases, id: \.self) { style in
-                    Text(style.rawValue).tag(style)
-                }
-            }
-            .pickerStyle(.segmented)
-            .fixedSize()
+        SettingRow(icon: "sparkles", iconColor: .accentColor, title: "动画类型") {
+            FusedCapsuleGroup(
+                options: AppSettings.AnimationStyle.allCases,
+                selection: $settings.animationStyle,
+                labelFor: { $0.rawValue }
+            )
         }
     }
 
     private var edgePaddingSection: some View {
-        SettingRow(icon: "arrow.up.to.line.square.fill", iconColor: .teal, title: "屏幕边缘距离", fillWidth: true) {
+        SettingRow(icon: "arrow.up.to.line.square.fill", iconColor: .accentColor, title: "屏幕边缘距离", fillWidth: true) {
             SliderControl(
                 value: $settings.overlayEdgePadding,
                 range: 0...100,
                 step: 5,
                 format: "%.0f",
-                color: .teal
+                color: .accentColor
             )
         }
     }
+
+}
+
+// MARK: - 位置网格选择器
+
+/// 遥控器风格位置选择器：三行网格，中行合并，带文本说明
+struct PositionGridPicker: View {
+    @Binding var selection: AppSettings.OverlayPosition
+
+    var body: some View {
+        VStack(spacing: 0) {
+            // 第一行：三个位置
+            HStack(spacing: 0) {
+                gridCell(.topLeft)
+                dividerV
+                gridCell(.topCenter)
+                dividerV
+                gridCell(.topRight)
+            }
+            dividerH
+            // 第二行：居中（合并整行）
+            gridCell(.center)
+            dividerH
+            // 第三行：三个位置
+            HStack(spacing: 0) {
+                gridCell(.bottomLeft)
+                dividerV
+                gridCell(.bottomCenter)
+                dividerV
+                gridCell(.bottomRight)
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+        )
+    }
+
+    private func gridCell(_ position: AppSettings.OverlayPosition) -> some View {
+        let isSelected = selection == position
+        return Button {
+            selection = position
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: icon(for: position))
+                    .font(.system(size: 12, weight: .medium))
+                Text(position.rawValue)
+                    .font(.caption)
+            }
+            .fontWeight(isSelected ? .semibold : .regular)
+            .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+            .frame(maxWidth: .infinity)
+            .frame(height: 30)
+            .background(
+                Rectangle()
+                    .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var dividerV: some View {
+        Rectangle().fill(Color.secondary.opacity(0.15)).frame(width: 1)
+    }
+
+    private var dividerH: some View {
+        Rectangle().fill(Color.secondary.opacity(0.15)).frame(height: 1)
+    }
+
+    private func icon(for position: AppSettings.OverlayPosition) -> String {
+        switch position {
+        case .topLeft: return "arrow.up.left"
+        case .topCenter: return "arrow.up"
+        case .topRight: return "arrow.up.right"
+        case .center: return "scope"
+        case .bottomLeft: return "arrow.down.left"
+        case .bottomCenter: return "arrow.down"
+        case .bottomRight: return "arrow.down.right"
+        }
+    }
+}
+
+
+#Preview {
+    AnimationSettingsView()
+        .environmentObject(AppSettings())
+        .environmentObject(ReminderController())
+        .frame(width: 680, height: 600)
 }

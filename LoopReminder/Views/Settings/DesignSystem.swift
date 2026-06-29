@@ -33,7 +33,7 @@ enum DesignTokens {
         /// 表单行垂直内边距
         static let rowVerticalPadding: CGFloat = 6
         /// 标签区域固定宽度
-        static let labelWidth: CGFloat = 100
+        static let labelWidth: CGFloat = 128
         /// 滑块控件固定宽度
         static let sliderWidth: CGFloat = 140
         /// 数值显示固定宽度
@@ -237,6 +237,38 @@ struct InfoHint: View {
     }
 }
 
+/// 与表单控件区左边缘对齐的信息提示
+struct ControlAreaInfoHint: View {
+    let message: String
+    let color: Color
+
+    init(_ message: String, color: Color = .blue) {
+        self.message = message
+        self.color = color
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: DesignTokens.Spacing.lg) {
+            Color.clear
+                .frame(width: DesignTokens.Layout.labelWidth)
+
+            HStack(alignment: .top, spacing: DesignTokens.Spacing.sm) {
+                Image(systemName: "info.circle.fill")
+                    .font(DesignTokens.Typography.hint)
+                    .foregroundStyle(color.opacity(0.6))
+                Text(message)
+                    .font(DesignTokens.Typography.hint)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, DesignTokens.Layout.rowVerticalPadding)
+    }
+}
+
 // MARK: - 验证提示组件
 
 /// 输入验证提示
@@ -397,7 +429,7 @@ struct SettingToggleRow<Content: View>: View {
 
 // MARK: - 滑块控件组件
 
-/// 标准滑块控件（带数值显示）
+/// 滑块控件：数值集成在滑块上，hover 亮起主题色
 struct SliderControl: View {
     @Binding var value: Double
     let range: ClosedRange<Double>
@@ -407,7 +439,8 @@ struct SliderControl: View {
     let color: Color
     let disabled: Bool
     let valueMultiplier: Double
-    let showTicks: Bool // 是否显示刻度
+
+    @State private var isHovered = false
 
     init(
         value: Binding<Double>,
@@ -417,8 +450,7 @@ struct SliderControl: View {
         unit: String = "",
         color: Color = .blue,
         disabled: Bool = false,
-        valueMultiplier: Double = 1,
-        showTicks: Bool = false // 默认隐藏刻度
+        valueMultiplier: Double = 1
     ) {
         self._value = value
         self.range = range
@@ -428,74 +460,69 @@ struct SliderControl: View {
         self.color = color
         self.disabled = disabled
         self.valueMultiplier = valueMultiplier
-        self.showTicks = showTicks
     }
 
     var body: some View {
-        HStack(spacing: DesignTokens.Spacing.sm) {
-            if showTicks {
-                // 显示刻度：使用标准 Slider
-                Slider(value: $value, in: range, step: step)
-                    .disabled(disabled)
-                    .frame(maxWidth: .infinity)
-            } else {
-                // 隐藏刻度：使用自定义 NSSlider
-                ContinuousSlider(value: $value, range: range, step: step, disabled: disabled)
-                    .frame(maxWidth: .infinity)
+        let fraction = CGFloat((value - range.lowerBound) / (range.upperBound - range.lowerBound))
+        let valueText = String(format: format, value * valueMultiplier) + unit
+
+        GeometryReader { proxy in
+            let knobW: CGFloat = 42
+            let knobH: CGFloat = 24
+            let trackH: CGFloat = 8
+            let travel = max(0, proxy.size.width - knobW)
+            let knobX = travel * fraction
+
+            ZStack(alignment: .leading) {
+                // 轨道背景（未触达区域，更淡）
+                Capsule()
+                    .fill(Color.secondary.opacity(0.08))
+                    .frame(width: proxy.size.width, height: trackH)
+                    .frame(maxHeight: .infinity)
+
+                // 进度填充（hover 时显示主题色）
+                Capsule()
+                    .fill(isHovered ? color : .clear)
+                    .frame(width: max(0, knobX + knobW / 2), height: trackH)
+                    .frame(maxHeight: .infinity)
+                    .animation(.easeOut(duration: 0.12), value: isHovered)
+
+                // 拖拽手柄（胶囊形，内含数值文本）
+                ZStack {
+                    Capsule()
+                        .fill(isHovered ? color : Color(nsColor: .controlBackgroundColor))
+                        .overlay(
+                            Capsule()
+                                .stroke(isHovered ? color.opacity(0.5) : Color.secondary.opacity(0.28), lineWidth: 1)
+                        )
+                        .shadow(color: .black.opacity(isHovered ? 0.12 : 0.06), radius: 2, y: 1)
+
+                    Text(valueText)
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(isHovered ? .white : .primary)
+                }
+                .frame(width: knobW, height: knobH)
+                .offset(x: knobX)
+                .animation(.easeOut(duration: 0.1), value: value)
             }
-
-            Text(String(format: format, value * valueMultiplier) + unit)
-                .font(DesignTokens.Typography.value)
-                .fontWeight(.medium)
-                .foregroundStyle(color)
-                .frame(width: DesignTokens.Layout.valueDisplayWidth, alignment: .trailing)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { gesture in
+                        let percent = max(0, min(1, (gesture.location.x - knobW / 2) / travel))
+                        let raw = range.lowerBound + percent * (range.upperBound - range.lowerBound)
+                        value = min(max(range.lowerBound, round(raw / step) * step), range.upperBound)
+                    }
+            )
+            .disabled(disabled)
         }
-    }
-}
-
-/// 无刻度的连续滑块（macOS）
-struct ContinuousSlider: NSViewRepresentable {
-    @Binding var value: Double
-    let range: ClosedRange<Double>
-    let step: Double
-    let disabled: Bool
-
-    func makeNSView(context: Context) -> NSSlider {
-        let slider = NSSlider()
-        slider.minValue = range.lowerBound
-        slider.maxValue = range.upperBound
-        slider.doubleValue = value
-        slider.target = context.coordinator
-        slider.action = #selector(Coordinator.valueChanged)
-        slider.isEnabled = !disabled
-        slider.allowsTickMarkValuesOnly = false // 关键：不限制只能选择刻度值
-        slider.numberOfTickMarks = 0 // 隐藏刻度
-        return slider
-    }
-
-    func updateNSView(_ nsView: NSSlider, context: Context) {
-        nsView.doubleValue = value
-        nsView.isEnabled = !disabled
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(value: $value, step: step)
-    }
-
-    class Coordinator: NSObject {
-        var value: Binding<Double>
-        let step: Double
-
-        init(value: Binding<Double>, step: Double) {
-            self.value = value
-            self.step = step
-        }
-
-        @objc func valueChanged(_ slider: NSSlider) {
-            // 步进到最近的刻度值
-            let rawValue = slider.doubleValue
-            let steppedValue = round(rawValue / step) * step
-            value.wrappedValue = steppedValue
+        .frame(height: 32)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) {
+                isHovered = hovering
+            }
         }
     }
 }
@@ -546,6 +573,95 @@ struct LockCard: View {
             RoundedRectangle(cornerRadius: DesignTokens.Layout.cornerRadiusSmall)
                 .fill(DesignTokens.Colors.warning.opacity(0.1))
         )
+    }
+}
+
+// MARK: - 融合胶囊按钮组（≤3 选项的切换控件）
+
+/// 融合的胶囊按钮组：所有选项无缝拼接在一个胶囊形容器内
+struct FusedCapsuleGroup<Option: Hashable>: View {
+    let options: [Option]
+    @Binding var selection: Option
+    let labelFor: (Option) -> String
+    let swatchFor: ((Option) -> AnyView)?
+    let uniformWidth: Bool
+
+    var body: some View {
+        let items = Array(options)
+
+        HStack(spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.element) { index, option in
+                if index > 0 {
+                    // 仅在相邻两个选项均未选中时显示分割线
+                    let prevOption = items[index - 1]
+                    if selection != option && selection != prevOption {
+                        divider
+                    }
+                }
+
+                Button {
+                    selection = option
+                } label: {
+                    HStack(spacing: 4) {
+                        if let swatchFor {
+                            swatchFor(option)
+                        }
+                        Text(labelFor(option))
+                            .font(.caption)
+                            .fontWeight(selection == option ? .semibold : .regular)
+                            .foregroundStyle(selection == option ? Color.accentColor : Color.primary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: uniformWidth ? .infinity : nil)
+                    .frame(height: 28)
+                    .padding(.horizontal, 10)
+                    .background(
+                        Rectangle()
+                            .fill(selection == option ? Color.accentColor.opacity(0.12) : Color.clear)
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: uniformWidth ? .infinity : nil)
+            }
+        }
+        .frame(maxWidth: uniformWidth ? .infinity : nil)
+        .fixedSize(horizontal: !uniformWidth, vertical: false)
+        .background(Capsule().fill(Color(nsColor: .controlBackgroundColor).opacity(0.7)))
+        .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+        )
+    }
+
+    private var divider: some View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.22))
+            .frame(width: 1, height: 16)
+    }
+
+    init(options: [Option],
+         selection: Binding<Option>,
+         labelFor: @escaping (Option) -> String,
+         uniformWidth: Bool = true) {
+        self.options = options
+        self._selection = selection
+        self.labelFor = labelFor
+        self.swatchFor = nil
+        self.uniformWidth = uniformWidth
+    }
+
+    init(options: [Option],
+         selection: Binding<Option>,
+         labelFor: @escaping (Option) -> String,
+         uniformWidth: Bool = true,
+         @ViewBuilder swatchFor: @escaping (Option) -> some View) {
+        self.options = options
+        self._selection = selection
+        self.labelFor = labelFor
+        self.swatchFor = { AnyView(swatchFor($0)) }
+        self.uniformWidth = uniformWidth
     }
 }
 

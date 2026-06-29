@@ -11,7 +11,7 @@ struct LogsView: View {
             HStack {
                 PageHeader(
                     icon: "doc.text.magnifyingglass",
-                    iconColor: .orange,
+                    iconColor: .accentColor,
                     title: "日志",
                     subtitle: "记录通知发送、启动/重置/停止等关键事件"
                 )
@@ -73,7 +73,7 @@ struct LogsView: View {
     }
     
     private func reload() {
-        logs = logger.readAll()
+        logs = logger.readAll().reversed()
     }
     
     private func sanitize(_ text: String) -> String {

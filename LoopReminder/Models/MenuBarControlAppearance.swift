@@ -17,9 +17,6 @@ struct MenuBarControlAppearance {
     }
 
     var scale: Double {
-        guard isEnabled else { return 1 }
-        if isPressed { return 0.985 }
-        if isHovered { return 1.01 }
         return 1
     }
 }

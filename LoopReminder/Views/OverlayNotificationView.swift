@@ -77,6 +77,7 @@ struct OverlayNotificationView: View {
     @State private var offset: CGSize = .zero
     @State private var backgroundOpacityMultiplier: Double = 1.0 // ... existing code ...
     // 背景透明度乘数，用于淡化效果而不影响整个视图
+    @State private var isCheckHovered = false
     
     var body: some View {
         GeometryReader { geometry in
@@ -117,7 +118,7 @@ struct OverlayNotificationView: View {
                             Text(trimmedEmoji)
                                 .font(.system(size: iconSize))
                         }
-                        
+
                         VStack(alignment: .leading, spacing: 4) {
                             // 只在title不为空时显示
                             if !trimmedTitle.isEmpty {
@@ -127,39 +128,17 @@ struct OverlayNotificationView: View {
                                     .foregroundColor(primaryTextColor)
                                     .shadow(color: textShadowColor, radius: 9, x: 0, y: 0)
                             }
-                            
-                            HStack(alignment: .center, spacing: 8) {
-                                if !trimmedBody.isEmpty {
-                                    Text(trimmedBody)
-                                        .font(.system(size: bodyFontSize))
-                                        .monospacedDigit()
-                                        .foregroundColor(secondaryTextColor)
-                                        .lineLimit(2)
-                                        .shadow(color: textShadowColor, radius: 8, x: 0, y: 0)
-                                }
 
-                                Spacer(minLength: 0)
-
-                                notificationActionButton(
-                                    systemImage: "xmark",
-                                    help: "忽略",
-                                    color: secondaryTextColor,
-                                    useBackground: !isLiquidMaterial
-                                ) {
-                                    onDismiss(.ignored)
-                                }
-
-                                notificationActionButton(
-                                    systemImage: "checkmark",
-                                    help: "完成",
-                                    color: secondaryTextColor,
-                                    useBackground: !isLiquidMaterial
-                                ) {
-                                    onDismiss(.completed)
-                                }
+                            if !trimmedBody.isEmpty {
+                                Text(trimmedBody)
+                                    .font(.system(size: bodyFontSize))
+                                    .monospacedDigit()
+                                    .foregroundColor(secondaryTextColor)
+                                    .lineLimit(2)
+                                    .shadow(color: textShadowColor, radius: 8, x: 0, y: 0)
                             }
                         }
-                        
+
                         Spacer()
                     }
                 }
@@ -167,6 +146,22 @@ struct OverlayNotificationView: View {
             .padding(.vertical, overlayWidth < 150 ? 10 : 20)
             .padding(.horizontal, overlayWidth < 150 ? 8 : 20)
             .frame(width: overlayWidth, height: overlayHeight)
+            .overlay(alignment: .bottomTrailing) {
+                // 操作按钮（右下角内边距）
+                HStack(spacing: 8) {
+                    notificationActionButton(
+                        systemImage: "xmark",
+                        help: "忽略",
+                        color: secondaryTextColor,
+                        useBackground: !isLiquidMaterial
+                    ) {
+                        onDismiss(.ignored)
+                    }
+
+                    confirmButton(secondaryTextColor: secondaryTextColor)
+                }
+                .padding(12)
+            }
             .modifier(
                 OverlayNotificationMaterialModifier(
                     overlayMaterial: overlayMaterial,
@@ -367,6 +362,28 @@ struct OverlayNotificationView: View {
         }
         .buttonStyle(.plain)
         .help(help)
+    }
+
+    private func confirmButton(secondaryTextColor: Color?) -> some View {
+        Button {
+            onDismiss(.completed)
+        } label: {
+            Image(systemName: "checkmark")
+                .font(.system(size: max(9, bodyFontSize - 1), weight: .semibold))
+                .foregroundStyle(isCheckHovered ? .white : (secondaryTextColor ?? .primary))
+                .frame(width: 22, height: 22)
+                .background(
+                    Circle()
+                        .fill(isCheckHovered ? .green : .white.opacity(0.18))
+                )
+        }
+        .buttonStyle(.plain)
+        .help("完成")
+        .onHover { hovering in
+            withAnimation(.easeOut(duration: 0.12)) {
+                isCheckHovered = hovering
+            }
+        }
     }
     
     // 根据position确定从哪个边进入/退出

@@ -42,6 +42,7 @@ struct MenuBarView: View {
                 ForEach(settings.timers) { timer in
                     TimerRowView(
                         timer: timer,
+                        isEditingDisabled: settings.editingTimerID == timer.id,
                         onToggle: { toggleTimer(timer) }
                     )
                 }
@@ -90,6 +91,8 @@ struct MenuBarView: View {
     }
 
     private func toggleTimer(_ timer: TimerItem) {
+        // 编辑态下禁止启动
+        guard settings.editingTimerID != timer.id else { return }
         if timer.isRunning {
             controller.stopTimer(timer.id, settings: settings)
         } else {
@@ -276,6 +279,7 @@ struct MenuBarButton: View {
 
 struct TimerRowView: View {
     let timer: TimerItem
+    let isEditingDisabled: Bool
     let onToggle: () -> Void
 
     @State private var isHovered = false
@@ -299,7 +303,7 @@ struct TimerRowView: View {
     }
 
     var body: some View {
-        let isEnabled = timer.isContentValid()
+        let isEnabled = timer.isContentValid() && !isEditingDisabled
         let appearance = MenuBarControlAppearance(isHovered: isHovered, isPressed: false, isEnabled: isEnabled)
 
         Button(action: onToggle) {
