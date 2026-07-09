@@ -689,3 +689,78 @@ struct VisualEffectBlur: NSViewRepresentable {
         nsView.blendingMode = blendingMode
     }
 }
+
+// MARK: - Start Notification Preview
+
+private enum StartNotificationPreviewTuning {
+    static let previewCanvasWidth: CGFloat = 320
+    static let previewCanvasHeight: CGFloat = 180
+
+    static let overlayWidth: Double = 120
+    static let overlayHeight: Double = 60
+    static let cornerRadius: Double = 18
+    static let titleFontSize: Double = 14
+    static let bodyFontSize: Double = 12
+    static let iconSize: Double = 18
+    static let contentSpacing: Double = 6
+
+    static let backgroundColor = Color(red: 0.12, green: 0.14, blue: 0.16)
+    static let backgroundOpacity: Double = 0.85
+    static let useBlur = true
+    static let blurIntensity: Double = 0.5
+}
+
+private struct StartNotificationPreviewView: View {
+    var title: String = "已开启"
+    var message: String = "1个计时器"
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(red: 0.16, green: 0.18, blue: 0.22),
+                    Color(red: 0.08, green: 0.09, blue: 0.11)
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            OverlayNotificationView(
+                emoji: "",
+                title: title,
+                message: message,
+                backgroundColor: StartNotificationPreviewTuning.backgroundColor,
+                backgroundOpacity: StartNotificationPreviewTuning.backgroundOpacity,
+                stayDuration: 999,
+                enableFadeOut: false,
+                fadeOutDelay: 0,
+                fadeOutDuration: 0.25,
+                titleFontSize: StartNotificationPreviewTuning.titleFontSize,
+                bodyFontSize: StartNotificationPreviewTuning.bodyFontSize,
+                iconSize: StartNotificationPreviewTuning.iconSize,
+                cornerRadius: StartNotificationPreviewTuning.cornerRadius,
+                contentSpacing: StartNotificationPreviewTuning.contentSpacing,
+                useBlur: StartNotificationPreviewTuning.useBlur,
+                blurIntensity: StartNotificationPreviewTuning.blurIntensity,
+                overlayWidth: StartNotificationPreviewTuning.overlayWidth,
+                overlayHeight: StartNotificationPreviewTuning.overlayHeight,
+                animationStyle: .fade,
+                position: .center,
+                padding: 0,
+                textColor: .white,
+                overlayMaterial: .basic,
+                liquidGlassStyle: .clear,
+                showsActionButtons: false,
+                onDismiss: { _ in }
+            )
+        }
+        .frame(
+            width: StartNotificationPreviewTuning.previewCanvasWidth,
+            height: StartNotificationPreviewTuning.previewCanvasHeight
+        )
+    }
+}
+
+#Preview("启动提示") {
+    StartNotificationPreviewView()
+}
