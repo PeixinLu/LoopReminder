@@ -423,15 +423,15 @@ struct TimerListItemView: View {
             return "[循环] " + timer.formattedInterval()
         } else {
             // 定点提醒
-            let enabledTimes = timer.scheduledTimes.filter { $0.enabled }
-            if enabledTimes.isEmpty {
-                return "[定点] 无启用的提醒时间"
-            } else if enabledTimes.count == 1 {
-                let time = enabledTimes[0]
+            let times = timer.scheduledTimes.sorted { ($0.hour, $0.minute) < ($1.hour, $1.minute) }
+            if times.isEmpty {
+                return "[定点] 无提醒时间"
+            } else if times.count == 1 {
+                let time = times[0]
                 return String(format: "[定点] 每天 %02d:%02d", time.hour, time.minute)
             } else {
-                let firstTime = enabledTimes[0]
-                return String(format: "[定点] 每天 %02d:%02d 等%d个时间点", firstTime.hour, firstTime.minute, enabledTimes.count)
+                let firstTime = times[0]
+                return String(format: "[定点] 每天 %02d:%02d 等%d个时间点", firstTime.hour, firstTime.minute, times.count)
             }
         }
     }

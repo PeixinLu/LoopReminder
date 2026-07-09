@@ -24,6 +24,9 @@ final class ReminderController: ObservableObject {
     private var overlayEventIDs: [UUID: UUID] = [:]
     private var notificationOrder: [UUID] = [] // 通知显示顺序（从上到下）
     private var windowScreens: [UUID: NSScreen] = [:] // 记录每个窗口所在的屏幕
+    private var overlayCardLocalRects: [UUID: NSRect] = [:] // 通知卡片在窗口内的真实响应区域
+    private var overlayMouseLocalMonitor: Any?
+    private var overlayMouseGlobalMonitor: Any?
     
     private let center = UNUserNotificationCenter.current()
     private var overlayWindow: NSWindow?  // 使用 NSWindow 基类以支持材质宿主 A/B 实验
@@ -170,18 +173,18 @@ final class ReminderController: ObservableObject {
 
     @discardableResult
     private func scheduleScheduledTimers(for timer: TimerItem, settings: AppSettings) -> Bool {
-        let enabledTimes = timer.scheduledTimes.filter { $0.enabled }
-        guard !enabledTimes.isEmpty else {
-            logger.log("⚠️ 计时器 \(timer.displayName) 没有启用的定点时间")
+        let scheduledTimes = timer.scheduledTimes
+        guard !scheduledTimes.isEmpty else {
+            logger.log("⚠️ 计时器 \(timer.displayName) 没有定点时间")
             return false
         }
 
-        for scheduledTime in enabledTimes {
+        for scheduledTime in scheduledTimes {
             let nextFireDate = calculateNextFireDate(hour: scheduledTime.hour, minute: scheduledTime.minute)
             scheduleScheduledTimer(for: timer, timeID: scheduledTime.id, fireAt: nextFireDate, settings: settings)
         }
 
-        logger.log("定点计时器已安排: \(timer.displayName), 共 \(enabledTimes.count) 个时间点")
+        logger.log("定点计时器已安排: \(timer.displayName), 共 \(scheduledTimes.count) 个时间点")
         return true
     }
 
@@ -232,7 +235,7 @@ final class ReminderController: ObservableObject {
 
         guard let timer = settings.timers.first(where: { $0.id == timerID }),
               timer.isRunning,
-              let scheduledTime = timer.scheduledTimes.first(where: { $0.id == timeID && $0.enabled }) else {
+              let scheduledTime = timer.scheduledTimes.first(where: { $0.id == timeID }) else {
             return
         }
 
@@ -240,7 +243,7 @@ final class ReminderController: ObservableObject {
 
         guard let currentTimer = settings.timers.first(where: { $0.id == timerID }),
               currentTimer.isRunning,
-              currentTimer.scheduledTimes.contains(where: { $0.id == timeID && $0.enabled }) else {
+              currentTimer.scheduledTimes.contains(where: { $0.id == timeID }) else {
             return
         }
 
@@ -380,6 +383,7 @@ final class ReminderController: ObservableObject {
             // 从字典和顺序中移除
             overlayWindows.removeValue(forKey: timerID)
             windowScreens.removeValue(forKey: timerID)
+            overlayCardLocalRects.removeValue(forKey: timerID)
             
             if let index = notificationOrder.firstIndex(of: timerID) {
                 notificationOrder.remove(at: index)
@@ -387,6 +391,7 @@ final class ReminderController: ObservableObject {
             
             // 立即重新布局其他通知
             relayoutNotifications(settings: settings)
+            removeOverlayMouseTrackingIfNeeded()
             
             // 然后关闭窗口（使用渐隐动画）
             NSAnimationContext.runAnimationGroup({ context in
@@ -544,11 +549,13 @@ final class ReminderController: ObservableObject {
         let timerID = Self.stylePreviewTimerID
         overlayEventIDs.removeValue(forKey: timerID)
         windowScreens.removeValue(forKey: timerID)
+        overlayCardLocalRects.removeValue(forKey: timerID)
         notificationOrder.removeAll { $0 == timerID }
 
         guard let window = overlayWindows.removeValue(forKey: timerID) else { return }
         window.orderOut(nil)
         window.close()
+        removeOverlayMouseTrackingIfNeeded()
     }
 
     private func sendNotification(for timer: TimerItem, settings: AppSettings, isTest: Bool = false, content: NotificationContent? = nil, overlayStyle: OverlayStyle? = nil, triggerRestOnDismiss: Bool = true, skipSound: Bool = false, showsActionButtons: Bool = true) async {
@@ -690,9 +697,9 @@ final class ReminderController: ObservableObject {
         case .interval:
             return max(1, timer.intervalSeconds)
         case .scheduled:
-            let enabledTimes = timer.scheduledTimes.filter { $0.enabled }
-            guard !enabledTimes.isEmpty else { return max(1, settingsRef?.overlayStayDuration ?? 5) }
-            let nextDates = enabledTimes.map { calculateNextFireDate(hour: $0.hour, minute: $0.minute) }
+            let scheduledTimes = timer.scheduledTimes
+            guard !scheduledTimes.isEmpty else { return max(1, settingsRef?.overlayStayDuration ?? 5) }
+            let nextDates = scheduledTimes.map { calculateNextFireDate(hour: $0.hour, minute: $0.minute) }
             let nextDate = nextDates.min() ?? Date().addingTimeInterval(300)
             return max(1, nextDate.timeIntervalSince(Date()))
         }
@@ -783,6 +790,14 @@ final class ReminderController: ObservableObject {
             if let observer = self.unlockObserver {
                 center.removeObserver(observer)
             }
+            if let monitor = self.overlayMouseLocalMonitor {
+                NSEvent.removeMonitor(monitor)
+                self.overlayMouseLocalMonitor = nil
+            }
+            if let monitor = self.overlayMouseGlobalMonitor {
+                NSEvent.removeMonitor(monitor)
+                self.overlayMouseGlobalMonitor = nil
+            }
         }
     }
     
@@ -863,6 +878,7 @@ final class ReminderController: ObservableObject {
             // 立即从字典和顺序中移除，防止新通知计算位置时把旧窗口算进去
             overlayWindows.removeValue(forKey: timer.id)
             windowScreens.removeValue(forKey: timer.id)
+            overlayCardLocalRects.removeValue(forKey: timer.id)
             
             if let index = notificationOrder.firstIndex(of: timer.id) {
                 notificationOrder.remove(at: index)
@@ -1012,6 +1028,14 @@ final class ReminderController: ObservableObject {
         }
         
         let window = makeOverlayWindow(contentRect: windowRect, settings: settings)
+        let cardLocalRect = overlayCardLocalRect(
+            expandedWidth: expandedWidth,
+            expandedHeight: expandedHeight,
+            cardWidth: windowWidth,
+            cardHeight: windowHeight,
+            padding: padding,
+            position: style.position
+        )
 
         let overlayView = OverlayNotificationView(
             emoji: content.emoji,
@@ -1062,6 +1086,7 @@ final class ReminderController: ObservableObject {
 
                         // 从字典和顺序中移除（先移除再关闭，确保重新布局时不会计算它）
                         self.overlayWindows.removeValue(forKey: timerID)
+                        self.overlayCardLocalRects.removeValue(forKey: timerID)
                         
                         if let index = self.notificationOrder.firstIndex(of: timerID) {
                             self.notificationOrder.remove(at: index)
@@ -1071,6 +1096,7 @@ final class ReminderController: ObservableObject {
                         
                         // 立即重新布局其他通知（带动画的上移）
                         self.relayoutNotifications(settings: settings)
+                        self.removeOverlayMouseTrackingIfNeeded()
                         
                         // 然后关闭窗口（使用渐隐动画）
                         NSAnimationContext.runAnimationGroup({ context in
@@ -1129,11 +1155,14 @@ final class ReminderController: ObservableObject {
         
         // 添加到窗口字典和顺序列表
         self.overlayWindows[timer.id] = window
+        self.overlayCardLocalRects[timer.id] = cardLocalRect
         if let eventID {
             self.overlayEventIDs[timer.id] = eventID
         }
         self.notificationOrder.append(timer.id)
         self.windowScreens[timer.id] = screen // 记录窗口所在的屏幕
+        ensureOverlayMouseTracking()
+        updateOverlayMouseEventPassthrough()
     }
 
     private func makeOverlayWindow(contentRect: NSRect, settings: AppSettings) -> NSWindow {
@@ -1171,6 +1200,91 @@ final class ReminderController: ObservableObject {
             hasShadow: true
         )
         #endif
+    }
+
+    private func overlayCardLocalRect(expandedWidth: CGFloat, expandedHeight: CGFloat, cardWidth: CGFloat, cardHeight: CGFloat, padding: CGFloat, position: AppSettings.OverlayPosition) -> NSRect {
+        let x: CGFloat
+        let y: CGFloat
+
+        switch position {
+        case .topLeft:
+            x = padding
+            y = expandedHeight - padding - cardHeight
+        case .topRight:
+            x = expandedWidth - padding - cardWidth
+            y = expandedHeight - padding - cardHeight
+        case .bottomLeft:
+            x = padding
+            y = padding + 80
+        case .bottomRight:
+            x = expandedWidth - padding - cardWidth
+            y = padding + 80
+        case .topCenter:
+            x = (expandedWidth - cardWidth) / 2
+            y = expandedHeight - padding - cardHeight
+        case .center:
+            x = (expandedWidth - cardWidth) / 2
+            y = (expandedHeight - cardHeight) / 2
+        case .bottomCenter:
+            x = (expandedWidth - cardWidth) / 2
+            y = padding + 80
+        }
+
+        return NSRect(x: x, y: y, width: cardWidth, height: cardHeight)
+    }
+
+    private func ensureOverlayMouseTracking() {
+        if overlayMouseLocalMonitor == nil {
+            overlayMouseLocalMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged]) { [weak self] event in
+                Task { @MainActor in
+                    self?.updateOverlayMouseEventPassthrough()
+                }
+                return event
+            }
+        }
+
+        if overlayMouseGlobalMonitor == nil {
+            overlayMouseGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDragged, .rightMouseDragged]) { [weak self] _ in
+                Task { @MainActor in
+                    self?.updateOverlayMouseEventPassthrough()
+                }
+            }
+        }
+    }
+
+    private func removeOverlayMouseTrackingIfNeeded() {
+        guard overlayWindows.isEmpty else {
+            updateOverlayMouseEventPassthrough()
+            return
+        }
+
+        if let monitor = overlayMouseLocalMonitor {
+            NSEvent.removeMonitor(monitor)
+            overlayMouseLocalMonitor = nil
+        }
+        if let monitor = overlayMouseGlobalMonitor {
+            NSEvent.removeMonitor(monitor)
+            overlayMouseGlobalMonitor = nil
+        }
+    }
+
+    private func updateOverlayMouseEventPassthrough() {
+        let mouseLocation = NSEvent.mouseLocation
+
+        for (timerID, window) in overlayWindows {
+            guard let localRect = overlayCardLocalRects[timerID] else {
+                window.ignoresMouseEvents = true
+                continue
+            }
+
+            let screenRect = NSRect(
+                x: window.frame.minX + localRect.minX,
+                y: window.frame.minY + localRect.minY,
+                width: localRect.width,
+                height: localRect.height
+            )
+            window.ignoresMouseEvents = !screenRect.contains(mouseLocation)
+        }
     }
 
     private func makeOverlayPanel(contentRect: NSRect, level: NSWindow.Level, hasShadow: Bool) -> NSPanel {
@@ -1314,6 +1428,8 @@ final class ReminderController: ObservableObject {
         overlayWindows.removeAll()
         notificationOrder.removeAll()
         windowScreens.removeAll()
+        overlayCardLocalRects.removeAll()
+        removeOverlayMouseTrackingIfNeeded()
         
         // 兼容旧的单窗口模式
         if let window = overlayWindow {

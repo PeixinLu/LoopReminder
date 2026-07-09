@@ -191,7 +191,7 @@ struct TimerManagementView: View {
         var copy = timer
         copy.id = UUID()
         copy.scheduledTimes = copy.scheduledTimes.map {
-            ScheduledTime(id: UUID(), hour: $0.hour, minute: $0.minute, enabled: $0.enabled)
+            ScheduledTime(id: UUID(), hour: $0.hour, minute: $0.minute, enabled: true)
         }
         copy.title = "\(timer.displayName) 副本"
         copy.isRunning = false
@@ -219,7 +219,7 @@ struct TimerManagementView: View {
 
     private func sortedUniqueTimes(_ times: [ScheduledTime]) -> [ScheduledTime] {
         var seen = Set<Int>()
-        return times
+        let sorted = times
             .sorted { ($0.hour, $0.minute) < ($1.hour, $1.minute) }
             .filter { time in
                 let key = time.hour * 60 + time.minute
@@ -229,6 +229,9 @@ struct TimerManagementView: View {
                 seen.insert(key)
                 return true
             }
+            .map { ScheduledTime(id: $0.id, hour: $0.hour, minute: $0.minute, enabled: true) }
+
+        return sorted.isEmpty ? [ScheduledTime(hour: 9, minute: 0, enabled: true)] : sorted
     }
 }
 
@@ -450,10 +453,10 @@ private struct TimerManagerListItemView: View {
         case .interval:
             return "每 \(timer.formattedInterval())"
         case .scheduled:
-            let enabled = timer.scheduledTimes.filter(\.enabled).sorted { ($0.hour, $0.minute) < ($1.hour, $1.minute) }
-            guard !enabled.isEmpty else { return "无启用时间" }
-            let values = enabled.prefix(3).map { $0.formattedTime() }.joined(separator: " / ")
-            return enabled.count > 3 ? "\(values) 等 \(enabled.count) 个" : values
+            let times = timer.scheduledTimes.sorted { ($0.hour, $0.minute) < ($1.hour, $1.minute) }
+            guard !times.isEmpty else { return "无时间点" }
+            let values = times.prefix(3).map { $0.formattedTime() }.joined(separator: " / ")
+            return times.count > 3 ? "\(values) 等 \(times.count) 个" : values
         }
     }
 
@@ -563,7 +566,7 @@ private struct TimerProgressFooterView: View {
             let remaining = max(0, Int(next.timeIntervalSince(now)))
             return "下次通知：\(formatRemaining(remaining))"
         case .scheduled:
-            guard let next = nextScheduledTime else { return "无启用的提醒时间" }
+            guard let next = nextScheduledTime else { return "无提醒时间" }
             return "下次提醒：\(next.formattedTime())"
         }
     }
@@ -572,7 +575,6 @@ private struct TimerProgressFooterView: View {
         let calendar = Calendar.current
         let current = calendar.component(.hour, from: now) * 60 + calendar.component(.minute, from: now)
         return timer.scheduledTimes
-            .filter(\.enabled)
             .min { lhs, rhs in
                 distance(from: current, to: lhs) < distance(from: current, to: rhs)
             }
@@ -620,10 +622,10 @@ private struct TimerDetailView: View {
     }
 
     private var scheduledTimesDetail: some View {
-        let enabled = timer.scheduledTimes.filter(\.enabled).sorted { ($0.hour, $0.minute) < ($1.hour, $1.minute) }
+        let times = timer.scheduledTimes.sorted { ($0.hour, $0.minute) < ($1.hour, $1.minute) }
         return Group {
-            if enabled.isEmpty {
-                DetailLine(label: "时间点", value: "无启用时间")
+            if times.isEmpty {
+                DetailLine(label: "时间点", value: "无时间点")
             } else {
                 HStack(alignment: .top, spacing: 8) {
                     Text("时间点")
@@ -631,7 +633,7 @@ private struct TimerDetailView: View {
                         .foregroundStyle(.secondary)
                         .frame(width: 42, alignment: .leading)
                     FlowLayout(spacing: 6) {
-                        ForEach(enabled) { time in
+                        ForEach(times) { time in
                             Text(time.formattedTime())
                                 .font(.caption)
                                 .monospacedDigit()
@@ -1092,12 +1094,12 @@ private struct TimerEditorSheet: View {
                 return false
             }
         } else {
-            let enabled = timer.scheduledTimes.filter(\.enabled)
-            guard !enabled.isEmpty else {
-                validationMessage = "请至少保留一个启用的定点时间"
+            let times = uniqueSortedTimes(timer.scheduledTimes)
+            guard !times.isEmpty else {
+                validationMessage = "请至少保留一个定点时间"
                 return false
             }
-            let keys = enabled.map { $0.hour * 60 + $0.minute }
+            let keys = times.map { $0.hour * 60 + $0.minute }
             if Set(keys).count != keys.count {
                 validationMessage = "定点时间不能重复"
                 return false
@@ -1109,7 +1111,7 @@ private struct TimerEditorSheet: View {
 
     private func uniqueSortedTimes(_ times: [ScheduledTime]) -> [ScheduledTime] {
         var seen = Set<Int>()
-        return times.sorted { ($0.hour, $0.minute) < ($1.hour, $1.minute) }.filter { time in
+        let sorted = times.sorted { ($0.hour, $0.minute) < ($1.hour, $1.minute) }.filter { time in
             let key = time.hour * 60 + time.minute
             if seen.contains(key) {
                 return false
@@ -1117,6 +1119,9 @@ private struct TimerEditorSheet: View {
             seen.insert(key)
             return true
         }
+            .map { ScheduledTime(id: $0.id, hour: $0.hour, minute: $0.minute, enabled: true) }
+
+        return sorted.isEmpty ? [ScheduledTime(hour: 9, minute: 0, enabled: true)] : sorted
     }
 }
 
@@ -1210,7 +1215,7 @@ private struct ReminderTypeSelector: View {
     }
 
     private var scheduledSubtitle: String {
-        let count = timer.scheduledTimes.filter(\.enabled).count
+        let count = timer.scheduledTimes.count
         return count == 0 ? "每天指定时间触发" : "每天 \(count) 个时间点"
     }
 }
@@ -2135,6 +2140,7 @@ private struct ScheduledTimesEditor: View {
                     ScheduledTimePill(
                         time: timeBinding(for: time.id),
                         existingKeys: existingKeys(excluding: time.id),
+                        canDelete: times.count > 1,
                         isPickerPresented: Binding(
                             get: { activeTimeID == time.id },
                             set: { isPresented in
@@ -2147,6 +2153,7 @@ private struct ScheduledTimesEditor: View {
                             }
                         )
                     ) {
+                        guard times.count > 1 else { return }
                         times.removeAll { $0.id == time.id }
                     }
                 }
@@ -2167,6 +2174,13 @@ private struct ScheduledTimesEditor: View {
                 .buttonStyle(.plain)
             }
         }
+        .onAppear {
+            ensureAtLeastOneTime()
+            normalizeTimes()
+        }
+        .onChange(of: times) { _, _ in
+            ensureAtLeastOneTime()
+        }
     }
 
     private func existingKeys(excluding id: UUID) -> Set<Int> {
@@ -2176,11 +2190,11 @@ private struct ScheduledTimesEditor: View {
     private func timeBinding(for id: UUID) -> Binding<ScheduledTime> {
         Binding(
             get: {
-                times.first { $0.id == id } ?? ScheduledTime(id: id, hour: 0, minute: 0, enabled: false)
+                times.first { $0.id == id } ?? ScheduledTime(id: id, hour: 0, minute: 0, enabled: true)
             },
             set: { updatedTime in
                 guard let index = times.firstIndex(where: { $0.id == id }) else { return }
-                times[index] = updatedTime
+                times[index] = ScheduledTime(id: updatedTime.id, hour: updatedTime.hour, minute: updatedTime.minute, enabled: true)
             }
         )
     }
@@ -2191,6 +2205,16 @@ private struct ScheduledTimesEditor: View {
         let newTime = ScheduledTime(hour: candidate / 60, minute: candidate % 60, enabled: true)
         times.append(newTime)
         activeTimeID = newTime.id
+    }
+
+    private func ensureAtLeastOneTime() {
+        if times.isEmpty {
+            times = [ScheduledTime(hour: 9, minute: 0, enabled: true)]
+        }
+    }
+
+    private func normalizeTimes() {
+        times = times.map { ScheduledTime(id: $0.id, hour: $0.hour, minute: $0.minute, enabled: true) }
     }
 
     private func sortTimesAnimated() {
@@ -2210,17 +2234,12 @@ private struct ScheduledTimesEditor: View {
 private struct ScheduledTimePill: View {
     @Binding var time: ScheduledTime
     let existingKeys: Set<Int>
+    let canDelete: Bool
     @Binding var isPickerPresented: Bool
     let onDelete: () -> Void
 
     var body: some View {
         HStack(spacing: 6) {
-            Toggle("", isOn: $time.enabled)
-                .labelsHidden()
-                .toggleStyle(.switch)
-                .scaleEffect(0.72)
-                .frame(width: 34)
-
             Button {
                 isPickerPresented = true
             } label: {
@@ -2242,9 +2261,11 @@ private struct ScheduledTimePill: View {
                 onDelete()
             } label: {
                 Image(systemName: "minus.circle.fill")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(canDelete ? .red : .secondary.opacity(0.35))
             }
             .buttonStyle(.plain)
+            .disabled(!canDelete)
+            .help(canDelete ? "删除时间点" : "至少保留一个时间点")
         }
         .padding(.horizontal, 8)
         .frame(height: 30)
@@ -2288,6 +2309,10 @@ private struct TimeGridPicker: View {
             }
             .frame(width: gridWidth)
 
+            Text("支持键盘输入，回车确定")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             Text("小时")
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -2319,7 +2344,7 @@ private struct TimeGridPicker: View {
         .padding(.horizontal, 20)
         .padding(.top, 18)
         .padding(.bottom, 20)
-        .frame(width: 455, height: 348, alignment: .topLeading)
+        .frame(width: 455, height: 366, alignment: .topLeading)
         .background(
             KeyboardCaptureView(
                 isFocused: $isKeyboardFocused,

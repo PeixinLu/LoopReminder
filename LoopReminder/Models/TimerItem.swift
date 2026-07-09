@@ -42,11 +42,11 @@ struct ReminderEvent: Identifiable, Codable {
 
 // MARK: - Scheduled Time
 
-struct ScheduledTime: Identifiable, Codable {
+struct ScheduledTime: Identifiable, Codable, Equatable {
     var id: UUID
     var hour: Int      // 0-23
     var minute: Int    // 0-59
-    var enabled: Bool  // 是否启用该时间点
+    var enabled: Bool  // 兼容旧数据；新版定点时间点始终视为有效
 
     init(id: UUID = UUID(), hour: Int = 9, minute: Int = 0, enabled: Bool = true) {
         self.id = id
@@ -212,7 +212,10 @@ struct TimerItem: Identifiable, Codable {
         self.customColor = customColor
         self.lastFireEpoch = lastFireEpoch
         self.reminderType = reminderType
-        self.scheduledTimes = scheduledTimes
+        let normalizedScheduledTimes = scheduledTimes.map {
+            ScheduledTime(id: $0.id, hour: $0.hour, minute: $0.minute, enabled: true)
+        }
+        self.scheduledTimes = normalizedScheduledTimes.isEmpty ? [ScheduledTime(hour: 9, minute: 0, enabled: true)] : normalizedScheduledTimes
         self.soundName = soundName
         self.stayDurationMode = stayDurationMode
         self.stayDurationSeconds = stayDurationSeconds
@@ -232,7 +235,9 @@ struct TimerItem: Identifiable, Codable {
         customColor = try container.decodeIfPresent(TimerColor.self, forKey: .customColor)
         lastFireEpoch = try container.decode(Double.self, forKey: .lastFireEpoch)
         reminderType = try container.decodeIfPresent(ReminderType.self, forKey: .reminderType) ?? .interval
-        scheduledTimes = try container.decodeIfPresent([ScheduledTime].self, forKey: .scheduledTimes) ?? [ScheduledTime(hour: 9, minute: 0)]
+        let decodedScheduledTimes = (try container.decodeIfPresent([ScheduledTime].self, forKey: .scheduledTimes) ?? [ScheduledTime(hour: 9, minute: 0)])
+            .map { ScheduledTime(id: $0.id, hour: $0.hour, minute: $0.minute, enabled: true) }
+        scheduledTimes = decodedScheduledTimes.isEmpty ? [ScheduledTime(hour: 9, minute: 0, enabled: true)] : decodedScheduledTimes
         soundName = container.contains(.soundName) ? try container.decodeIfPresent(String.self, forKey: .soundName) : "Glass"
         stayDurationMode = try container.decodeIfPresent(StayDurationMode.self, forKey: .stayDurationMode) ?? .untilNextNotification
         stayDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .stayDurationSeconds) ?? 5.0

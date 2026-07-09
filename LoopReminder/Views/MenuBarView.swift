@@ -14,6 +14,8 @@ private enum MenuBarPreviewTuning {
 
     static let timerRowHeight: CGFloat? = nil
     static let timerRowCornerRadius: CGFloat = 12
+    static let maxVisibleTimerRows = 6
+    static let timerListMaxHeight: CGFloat = 360
 
     static let timerSwitchWidth: CGFloat = 38
     static let timerSwitchHeight: CGFloat = 24
@@ -60,13 +62,7 @@ struct MenuBarView: View {
                 }
                 .padding(.horizontal, 8)
 
-                ForEach(settings.timers) { timer in
-                    TimerRowView(
-                        timer: timer,
-                        isEditingDisabled: settings.editingTimerID == timer.id,
-                        onToggle: { toggleTimer(timer) }
-                    )
-                }
+                timerListView
             }
 
             Divider()
@@ -85,6 +81,34 @@ struct MenuBarView: View {
     }
 
     // MARK: - Actions
+
+    @ViewBuilder
+    private var timerListView: some View {
+        if shouldScrollTimerList {
+            ScrollView {
+                timerRows
+            }
+            .frame(height: MenuBarPreviewTuning.timerListMaxHeight)
+        } else {
+            timerRows
+        }
+    }
+
+    private var timerRows: some View {
+        VStack(spacing: 6) {
+            ForEach(settings.timers) { timer in
+                TimerRowView(
+                    timer: timer,
+                    isEditingDisabled: settings.editingTimerID == timer.id,
+                    onToggle: { toggleTimer(timer) }
+                )
+            }
+        }
+    }
+
+    private var shouldScrollTimerList: Bool {
+        settings.timers.count > MenuBarPreviewTuning.maxVisibleTimerRows
+    }
 
     private func openSettings() {
         // 先关闭菜单
@@ -322,15 +346,15 @@ struct TimerRowView: View {
         if timer.reminderType == .interval {
             return "循环 · " + timer.formattedInterval()
         } else {
-            let enabledTimes = timer.scheduledTimes.filter { $0.enabled }
-            if enabledTimes.isEmpty {
-                return "定点 · 无启用的时间"
-            } else if enabledTimes.count == 1 {
-                let time = enabledTimes[0]
+            let times = timer.scheduledTimes.sorted { ($0.hour, $0.minute) < ($1.hour, $1.minute) }
+            if times.isEmpty {
+                return "定点 · 无时间点"
+            } else if times.count == 1 {
+                let time = times[0]
                 return String(format: "定点 · 每天 %02d:%02d", time.hour, time.minute)
             } else {
-                let firstTime = enabledTimes[0]
-                return String(format: "定点 · %02d:%02d 等%d个", firstTime.hour, firstTime.minute, enabledTimes.count)
+                let firstTime = times[0]
+                return String(format: "定点 · %02d:%02d 等%d个", firstTime.hour, firstTime.minute, times.count)
             }
         }
     }
@@ -419,6 +443,13 @@ struct PressablePlainButtonStyle: ButtonStyle {
 
 #Preview("菜单栏菜单 - 混合状态") {
     let settings = MenuBarPreviewData.settings
+    MenuBarView()
+        .environmentObject(settings)
+        .environmentObject(ReminderController())
+}
+
+#Preview("菜单栏菜单 - 多计时器滚动") {
+    let settings = MenuBarPreviewData.manyTimersSettings
     MenuBarView()
         .environmentObject(settings)
         .environmentObject(ReminderController())
@@ -527,6 +558,28 @@ private enum MenuBarPreviewData {
         settings.timers = timers
         settings.focusedTimerID = timers.first?.id
         settings.editingTimerID = editingTimer.id
+        settings.isRunning = timers.contains { $0.isRunning }
+        return settings
+    }
+
+    static var manyTimersSettings: AppSettings {
+        let settings = AppSettings()
+        let timers = (0..<14).map { index in
+            TimerItem(
+                emoji: index.isMultiple(of: 2) ? "⏱️" : "📍",
+                title: "计时器 \(index + 1)",
+                body: "菜单栏高度测试",
+                intervalSeconds: Double(600 + index * 60),
+                customColor: .init(colorType: index.isMultiple(of: 2) ? .blue : .emerald),
+                reminderType: index.isMultiple(of: 2) ? .interval : .scheduled,
+                scheduledTimes: [
+                    ScheduledTime(hour: (9 + index) % 24, minute: 0),
+                    ScheduledTime(hour: (14 + index) % 24, minute: 30)
+                ]
+            )
+        }
+        settings.timers = timers
+        settings.focusedTimerID = timers.first?.id
         settings.isRunning = timers.contains { $0.isRunning }
         return settings
     }
