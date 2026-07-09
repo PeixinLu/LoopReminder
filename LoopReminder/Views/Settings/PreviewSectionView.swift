@@ -83,10 +83,6 @@ struct PreviewSectionView: View {
                             TimerListItemView(
                                 timer: timer,
                                 isFocused: settings.focusedTimerID == timer.id,
-                                isRunning: settings.isRunning,
-                                onToggle: {
-                                    toggleTimer(timer)
-                                },
                                 onFocus: {
                                     settings.focusedTimerID = timer.id
                                 }
@@ -248,9 +244,6 @@ struct PreviewSectionView: View {
         return settings.timers.first
     }
 
-    private func toggleTimer(_ timer: TimerItem) {
-        // 删除旧的 toggle 逻辑，不再需要
-    }
 }
 
 // MARK: - Visual Effect Transparent View
@@ -275,8 +268,6 @@ struct VisualEffectTransparentView: NSViewRepresentable {
 struct TimerListItemView: View {
     let timer: TimerItem
     let isFocused: Bool
-    let isRunning: Bool
-    let onToggle: () -> Void
     let onFocus: () -> Void
     
     @EnvironmentObject private var settings: AppSettings
@@ -323,21 +314,16 @@ struct TimerListItemView: View {
                     }
                 }
                 
-                // 启动/停止按钮
+                // 开关按钮
                 if timer.isContentValid() {
-                    Button {
+                    TimerPowerSwitch(isOn: timer.isRunning) {
                         if timer.isRunning {
                             controller.stopTimer(timer.id, settings: settings)
                         } else {
                             controller.startTimer(timer.id, settings: settings)
                         }
-                    } label: {
-                        Image(systemName: timer.isRunning ? "pause.circle.fill" : "play.circle.fill")
-                            .font(.title3)
-                            .foregroundStyle(timer.isRunning ? .orange : .green)
                     }
-                    .buttonStyle(.plain)
-                    .help(timer.isRunning ? "暂停计时器" : "启动计时器")
+                    .help(timer.isRunning ? "关闭计时器" : "开启计时器")
                 }
             }
             .padding(.horizontal, DesignTokens.Spacing.sm)

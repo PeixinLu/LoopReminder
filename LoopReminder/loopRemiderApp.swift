@@ -76,11 +76,7 @@ struct LoopReminderApp: App {
                     if !settings.silentLaunch {
                         openSettingsWindow()
                     }
-                    // 启动时自动开始计时
-                    if settings.autoStartTimersOnLaunch {
-                        settings.isRunning = true
-                        controller.start(settings: settings)
-                    }
+                    controller.restoreEnabledTimers(settings: settings)
                 }
             }
         }

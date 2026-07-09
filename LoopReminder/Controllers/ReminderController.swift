@@ -16,7 +16,8 @@ final class ReminderController: ObservableObject {
     private var restingTimers: Set<UUID> = [] // 正在休息的计时器
 
     // 定点提醒支持
-    private var scheduledTimers: [UUID: Timer] = [:] // 定点提醒的 Timer
+    private var scheduledTimers: [UUID: Timer] = [:] // 定点提醒的 Timer，key 为 ScheduledTime.id
+    private var scheduledTimerOwners: [UUID: UUID] = [:] // ScheduledTime.id -> TimerItem.id
 
     // 多通知管理
     private var overlayWindows: [UUID: NSWindow] = [:] // 每个计时器的通知窗口
@@ -83,55 +84,96 @@ final class ReminderController: ObservableObject {
     func start(settings: AppSettings) {
         settingsRef = settings
         ensureLockMonitoring()
-        stop()
+        stopRuntime(markTimersOff: false)
 
         // 启动所有有效的计时器，根据各自的提醒类型调度
         let validTimers = settings.timers.filter { $0.isContentValid() }
         guard !validTimers.isEmpty else {
-            print("⚠️ 无法启动：至少需要有一个内容有效的计时器")
+            print("⚠️ 无法开启：至少需要有一个内容有效的计时器")
+            reconcileTimerStates(settings: settings)
             return
         }
 
-        logger.log("启动计时器: 共 \(validTimers.count) 个, 模式 \(settings.notificationMode.rawValue)")
+        logger.log("开启计时器: 共 \(validTimers.count) 个, 模式 \(settings.notificationMode.rawValue)")
 
+        var openedCount = 0
         for timer in validTimers {
-            switch timer.reminderType {
-            case .interval:
-                scheduleIntervalTimer(for: timer, settings: settings)
-            case .scheduled:
-                scheduleScheduledTimers(for: timer, settings: settings)
+            if startTimer(timer.id, settings: settings, showsStartNotification: false) {
+                openedCount += 1
             }
-            // 标记为运行中
-            if let index = settings.timers.firstIndex(where: { $0.id == timer.id }) {
-                settings.timers[index].isRunning = true
-                settings.timers[index].startedAtEpoch = Date().timeIntervalSince1970
+        }
+        reconcileTimerStates(settings: settings)
+
+        // 用户主动批量开启时弹出一次通知
+        if openedCount > 0 && settings.showStartNotification {
+            Task {
+                await self.sendStartNotification(settings: settings, count: openedCount)
             }
+        }
+    }
+
+    func restoreEnabledTimers(settings: AppSettings) {
+        settingsRef = settings
+        ensureLockMonitoring()
+        stopRuntime(markTimersOff: false, closeNotifications: false)
+
+        let enabledTimerIDs = settings.timers.filter(\.isRunning).map(\.id)
+        for timerID in enabledTimerIDs {
+            _ = startTimer(timerID, settings: settings, showsStartNotification: false)
+        }
+        reconcileTimerStates(settings: settings)
+    }
+
+    func isTimerScheduled(_ timerID: UUID, settings: AppSettings) -> Bool {
+        timers[timerID] != nil ||
+        restTimers[timerID] != nil ||
+        scheduledTimerOwners.contains { $0.value == timerID }
+    }
+
+    func reconcileTimerStates(settings: AppSettings) {
+        let timerIDs = settings.timers.map(\.id)
+        for timerID in timerIDs where !settings.timers.contains(where: { $0.id == timerID && $0.isRunning }) && isTimerScheduled(timerID, settings: settings) {
+            stopTimer(timerID, settings: settings)
         }
 
-        // 启动时弹出一次通知
-        if settings.showStartNotification {
-            Task {
-                await self.sendStartNotification(settings: settings, count: validTimers.count)
-            }
+        for index in settings.timers.indices where settings.timers[index].isRunning && !isTimerScheduled(settings.timers[index].id, settings: settings) {
+            settings.timers[index].isRunning = false
+            settings.timers[index].startedAtEpoch = 0
         }
+        updateAggregateRunningState(settings: settings)
+    }
+
+    private func setTimerSwitch(_ timerID: UUID, isOn: Bool, settings: AppSettings, startedAt: Date? = nil) {
+        if let index = settings.timers.firstIndex(where: { $0.id == timerID }) {
+            settings.timers[index].isRunning = isOn
+            settings.timers[index].startedAtEpoch = isOn ? (startedAt ?? Date()).timeIntervalSince1970 : 0
+        }
+        updateAggregateRunningState(settings: settings)
+    }
+
+    private func updateAggregateRunningState(settings: AppSettings) {
+        settings.isRunning = settings.timers.contains { $0.isRunning }
     }
 
     // MARK: - Interval Timer Scheduling
 
-    private func scheduleIntervalTimer(for timer: TimerItem, settings: AppSettings) {
+    @discardableResult
+    private func scheduleIntervalTimer(for timer: TimerItem, settings: AppSettings) -> Bool {
         let now = Date()
         let nextDate = now.addingTimeInterval(timer.intervalSeconds)
         scheduleTimer(for: timer.id, fireAt: nextDate, interval: timer.intervalSeconds, settings: settings)
         logger.log("间隔计时器已安排: \(timer.displayName), 间隔 \(timer.intervalSeconds) 秒")
+        return true
     }
 
     // MARK: - Scheduled Timer Scheduling
 
-    private func scheduleScheduledTimers(for timer: TimerItem, settings: AppSettings) {
+    @discardableResult
+    private func scheduleScheduledTimers(for timer: TimerItem, settings: AppSettings) -> Bool {
         let enabledTimes = timer.scheduledTimes.filter { $0.enabled }
         guard !enabledTimes.isEmpty else {
             logger.log("⚠️ 计时器 \(timer.displayName) 没有启用的定点时间")
-            return
+            return false
         }
 
         for scheduledTime in enabledTimes {
@@ -140,6 +182,7 @@ final class ReminderController: ObservableObject {
         }
 
         logger.log("定点计时器已安排: \(timer.displayName), 共 \(enabledTimes.count) 个时间点")
+        return true
     }
 
     /// 计算下一个触发时间
@@ -166,19 +209,43 @@ final class ReminderController: ObservableObject {
 
     /// 安排定点提醒定时器
     private func scheduleScheduledTimer(for timer: TimerItem, timeID: UUID, fireAt date: Date, settings: AppSettings) {
-        // 每天 24 小时 = 86400 秒
-        let interval: TimeInterval = 86400
+        if let existingTimer = scheduledTimers[timeID] {
+            existingTimer.invalidate()
+        }
 
-        let t = Timer(fire: date, interval: interval, repeats: true) { [weak self, weak settings] _ in
+        let t = Timer(fire: date, interval: 0, repeats: false) { [weak self, weak settings] _ in
             guard let self, let settings else { return }
             Task {
-                await self.sendScheduledNotification(timer: timer, settings: settings)
+                await self.handleScheduledTimerFire(timerID: timer.id, timeID: timeID, settings: settings)
             }
         }
         self.scheduledTimers[timeID] = t
+        self.scheduledTimerOwners[timeID] = timer.id
         RunLoop.main.add(t, forMode: .common)
 
         logger.log("定点提醒已安排: \(timer.displayName) - \(date.formatted(date: .abbreviated, time: .shortened))")
+    }
+
+    private func handleScheduledTimerFire(timerID: UUID, timeID: UUID, settings: AppSettings) async {
+        scheduledTimers.removeValue(forKey: timeID)
+        scheduledTimerOwners.removeValue(forKey: timeID)
+
+        guard let timer = settings.timers.first(where: { $0.id == timerID }),
+              timer.isRunning,
+              let scheduledTime = timer.scheduledTimes.first(where: { $0.id == timeID && $0.enabled }) else {
+            return
+        }
+
+        await sendScheduledNotification(timer: timer, settings: settings)
+
+        guard let currentTimer = settings.timers.first(where: { $0.id == timerID }),
+              currentTimer.isRunning,
+              currentTimer.scheduledTimes.contains(where: { $0.id == timeID && $0.enabled }) else {
+            return
+        }
+
+        let nextFireDate = calculateNextFireDate(hour: scheduledTime.hour, minute: scheduledTime.minute)
+        scheduleScheduledTimer(for: currentTimer, timeID: timeID, fireAt: nextFireDate, settings: settings)
     }
 
     /// 发送定点提醒通知
@@ -188,7 +255,11 @@ final class ReminderController: ObservableObject {
     }
 
     func stop() {
-        // 停止所有计时器
+        stopRuntime(markTimersOff: true)
+        logger.log("计时器已关闭")
+    }
+
+    private func stopRuntime(markTimersOff: Bool, closeNotifications: Bool = true) {
         for (_, timer) in timers {
             timer.invalidate()
         }
@@ -205,64 +276,71 @@ final class ReminderController: ObservableObject {
             timer.invalidate()
         }
         scheduledTimers.removeAll()
+        scheduledTimerOwners.removeAll()
 
-        // 标记所有计时器为未运行
         if var allTimers = settingsRef?.timers {
             for i in allTimers.indices {
-                allTimers[i].isRunning = false
+                if markTimersOff {
+                    allTimers[i].isRunning = false
+                }
                 allTimers[i].startedAtEpoch = 0
             }
             settingsRef?.timers = allTimers
+            settingsRef?.isRunning = allTimers.contains { $0.isRunning }
         }
 
         isResting = false
-        // 停止时关闭所有未关闭的通知弹窗
-        for (_, eventID) in overlayEventIDs {
-            settingsRef?.resolveReminderEvent(eventID, as: .missed)
+        if closeNotifications {
+            for (_, eventID) in overlayEventIDs {
+                settingsRef?.resolveReminderEvent(eventID, as: .missed)
+            }
+            overlayEventIDs.removeAll()
+            closeOverlay()
         }
-        overlayEventIDs.removeAll()
-        closeOverlay()
-        logger.log("计时器已停止")
     }
     
     // 启动单个计时器
-    func startTimer(_ timerID: UUID, settings: AppSettings) {
+    @discardableResult
+    func startTimer(_ timerID: UUID, settings: AppSettings, showsStartNotification: Bool = true) -> Bool {
         guard let timer = settings.timers.first(where: { $0.id == timerID }),
               timer.isContentValid() else {
-            print("⚠️ 无法启动计时器：内容无效")
-            return
+            print("⚠️ 无法开启计时器：内容无效")
+            setTimerSwitch(timerID, isOn: false, settings: settings)
+            return false
         }
 
         settingsRef = settings
         ensureLockMonitoring()
 
-        // 如果已经在运行，先停止
-        if timers[timerID] != nil || !scheduledTimers.filter({ $0.key == timerID }).isEmpty {
+        // 如果已经开启，先取消旧调度再重排
+        if isTimerScheduled(timerID, settings: settings) {
             stopTimer(timerID, settings: settings)
         }
 
-        // 根据提醒类型调度
+        let didSchedule: Bool
         switch timer.reminderType {
         case .interval:
-            scheduleIntervalTimer(for: timer, settings: settings)
+            didSchedule = scheduleIntervalTimer(for: timer, settings: settings)
         case .scheduled:
-            scheduleScheduledTimers(for: timer, settings: settings)
+            didSchedule = scheduleScheduledTimers(for: timer, settings: settings)
         }
 
-        // 标记为运行中
-        if let index = settings.timers.firstIndex(where: { $0.id == timerID }) {
-            settings.timers[index].isRunning = true
-            settings.timers[index].startedAtEpoch = Date().timeIntervalSince1970
+        guard didSchedule else {
+            setTimerSwitch(timerID, isOn: false, settings: settings)
+            return false
         }
 
-        logger.log("启动计时器: \(timer.displayName)")
+        setTimerSwitch(timerID, isOn: true, settings: settings, startedAt: Date())
 
-        // 启动单个计时器时也显示通知
-        if settings.showStartNotification {
+        logger.log("开启计时器: \(timer.displayName)")
+
+        // 用户主动开启单个计时器时显示通知
+        if showsStartNotification && settings.showStartNotification {
             Task {
                 await self.sendSingleTimerStartNotification(timerName: timer.displayName, settings: settings)
             }
         }
+        return true
     }
     
     // 停止单个计时器
@@ -282,20 +360,18 @@ final class ReminderController: ObservableObject {
         updateRestingState()
 
         // 停止该计时器关联的所有定点提醒定时器
-        if let timerItem = settings.timers.first(where: { $0.id == timerID }) {
-            for scheduledTime in timerItem.scheduledTimes {
-                if let scheduledTimer = scheduledTimers[scheduledTime.id] {
-                    scheduledTimer.invalidate()
-                    scheduledTimers.removeValue(forKey: scheduledTime.id)
-                }
+        let ownedTimeIDs = scheduledTimerOwners
+            .filter { $0.value == timerID }
+            .map(\.key)
+        for timeID in ownedTimeIDs {
+            if let scheduledTimer = scheduledTimers[timeID] {
+                scheduledTimer.invalidate()
             }
+            scheduledTimers.removeValue(forKey: timeID)
+            scheduledTimerOwners.removeValue(forKey: timeID)
         }
 
-        // 标记为未运行
-        if let index = settings.timers.firstIndex(where: { $0.id == timerID }) {
-            settings.timers[index].isRunning = false
-            settings.timers[index].startedAtEpoch = 0
-        }
+        setTimerSwitch(timerID, isOn: false, settings: settings)
         
         // 关闭该计时器的通知弹窗（如果有）
         if let window = overlayWindows[timerID] {
@@ -324,24 +400,24 @@ final class ReminderController: ObservableObject {
         }
         
         if let timerName = settings.timers.first(where: { $0.id == timerID })?.displayName {
-            logger.log("停止计时器: \(timerName)")
+            logger.log("关闭计时器: \(timerName)")
         }
     }
 
     func cleanup() {
-        stop()
+        stopRuntime(markTimersOff: false)
         center.removeAllPendingNotificationRequests()
         center.removeAllDeliveredNotifications()
-        // 退出应用时强制标记为未运行，避免下次启动仍显示倒计时
-        settingsRef?.isRunning = false
-        // 重置所有计时器的 lastFireEpoch
+        // 退出应用时只清理真实调度，不重置持久化开关状态
         if var timers = settingsRef?.timers {
             for i in timers.indices {
                 timers[i].lastFireEpoch = 0
+                timers[i].startedAtEpoch = 0
             }
             settingsRef?.timers = timers
+            settingsRef?.isRunning = timers.contains { $0.isRunning }
         }
-        logger.log("应用清理完成，计时状态重置")
+        logger.log("应用清理完成，计时器开关状态已保留")
     }
 
     private func scheduleTimer(for timerID: UUID, fireAt date: Date, interval: TimeInterval, settings: AppSettings) {
@@ -475,7 +551,7 @@ final class ReminderController: ObservableObject {
         window.close()
     }
 
-    private func sendNotification(for timer: TimerItem, settings: AppSettings, isTest: Bool = false, content: NotificationContent? = nil, overlayStyle: OverlayStyle? = nil, triggerRestOnDismiss: Bool = true, skipSound: Bool = false) async {
+    private func sendNotification(for timer: TimerItem, settings: AppSettings, isTest: Bool = false, content: NotificationContent? = nil, overlayStyle: OverlayStyle? = nil, triggerRestOnDismiss: Bool = true, skipSound: Bool = false, showsActionButtons: Bool = true) async {
         if !isTest {
             // 更新计时器的 lastFireEpoch
             if let index = settings.timers.firstIndex(where: { $0.id == timer.id }) {
@@ -498,7 +574,7 @@ final class ReminderController: ObservableObject {
             await sendSystemNotification(content: payload)
             settings.resolveReminderEvent(eventID, as: .missed)
         case .overlay:
-            showOverlayNotification(timer: timer, settings: settings, content: payload, style: style, triggerRestOnDismiss: triggerRestOnDismiss, eventID: eventID)
+            showOverlayNotification(timer: timer, settings: settings, content: payload, style: style, triggerRestOnDismiss: triggerRestOnDismiss, eventID: eventID, showsActionButtons: showsActionButtons)
         }
     }
 
@@ -536,14 +612,15 @@ final class ReminderController: ObservableObject {
             content: content,
             overlayStyle: style,
             triggerRestOnDismiss: false,
-            skipSound: true // 启动通知不播放声音
+            skipSound: true, // 启动通知不播放声音
+            showsActionButtons: false
         )
     }
     
     private func sendStartNotification(settings: AppSettings, count: Int) async {
         await sendStartLikeNotification(
             settings: settings,
-            title: "已启动",
+            title: "已开启",
             body: "\(count)个计时器"
         )
     }
@@ -551,7 +628,7 @@ final class ReminderController: ObservableObject {
     private func sendSingleTimerStartNotification(timerName: String, settings: AppSettings) async {
         await sendStartLikeNotification(
             settings: settings,
-            title: "已启动",
+            title: "已开启",
             body: timerName
         )
     }
@@ -715,30 +792,39 @@ final class ReminderController: ObservableObject {
         lastLockDate = nil
         
         let elapsed = Date().timeIntervalSince(lockDate)
-        guard elapsed >= 300 else { return } // 锁屏超过5分钟重置计时器
-        guard settings.isRunning else { return }
+        guard elapsed >= 300 else { return } // 锁屏超过5分钟重置循环提醒
+        guard settings.timers.contains(where: { $0.isRunning && $0.reminderType == .interval && $0.isContentValid() }) else { return }
         
-        restartAfterUnlock(settings: settings)
+        resetIntervalTimersAfterUnlock(settings: settings)
     }
     
-    private func restartAfterUnlock(settings: AppSettings) {
-        stop()
-        
+    private func resetIntervalTimersAfterUnlock(settings: AppSettings) {
         let now = Date()
-        let validTimers = settings.timers.filter { $0.isContentValid() }
+        let intervalTimers = settings.timers.filter { $0.isRunning && $0.reminderType == .interval && $0.isContentValid() }
         
-        // 为每个有效的计时器重新安排定时器
-        for timer in validTimers {
+        // 只重置已开启的循环提醒，定点提醒保持原计划
+        for timer in intervalTimers {
+            if let activeTimer = timers[timer.id] {
+                activeTimer.invalidate()
+                timers.removeValue(forKey: timer.id)
+            }
+            if let restTimer = restTimers[timer.id] {
+                restTimer.invalidate()
+                restTimers.removeValue(forKey: timer.id)
+            }
+            restingTimers.remove(timer.id)
             let nextDate = now.addingTimeInterval(timer.intervalSeconds)
             scheduleTimer(for: timer.id, fireAt: nextDate, interval: timer.intervalSeconds, settings: settings)
+            setTimerSwitch(timer.id, isOn: true, settings: settings, startedAt: now)
         }
+        updateRestingState()
         
         Task {
             if settings.showStartNotification {
                 await sendResetNotification(settings: settings)
             }
         }
-        logger.log("解锁后重置计时器")
+        logger.log("解锁后重置循环提醒倒计时")
     }
 
     private func sendSystemNotification(content payload: NotificationContent) async {
@@ -769,7 +855,7 @@ final class ReminderController: ObservableObject {
         }
     }
     
-    private func showOverlayNotification(timer: TimerItem, settings: AppSettings, content: NotificationContent, style: OverlayStyle, triggerRestOnDismiss: Bool, eventID: UUID? = nil) {
+    private func showOverlayNotification(timer: TimerItem, settings: AppSettings, content: NotificationContent, style: OverlayStyle, triggerRestOnDismiss: Bool, eventID: UUID? = nil, showsActionButtons: Bool = true) {
         // 关闭该计时器的旧通知（同个计时器的通知会覆盖）
         if let existingWindow = overlayWindows[timer.id] {
             settings.resolveReminderEvent(overlayEventIDs[timer.id], as: .missed)
@@ -956,6 +1042,7 @@ final class ReminderController: ObservableObject {
             glassTintColor: style.glassTintColor,
             glassTintAlpha: style.glassTintAlpha,
             glassTextColorMode: style.glassTextColorMode,
+            showsActionButtons: showsActionButtons,
             onDismiss: { [weak self, weak window, timerID = timer.id] reason in
                 Task {
                     guard let self, let w = window else { return }

@@ -122,7 +122,6 @@ final class AppSettings: ObservableObject {
         static let screenSelection = "screenSelection"
         static let silentLaunch = "silentLaunch"
         static let resetOnWake = "resetOnWake"
-        static let autoStartTimersOnLaunch = "autoStartTimersOnLaunch"
         static let showStartNotification = "showStartNotification"
         static let isRestEnabled = "isRestEnabled"
         static let restSeconds = "restSeconds"
@@ -191,7 +190,6 @@ final class AppSettings: ObservableObject {
     // 静默启动设置
     @Published var silentLaunch: Bool
     @Published var resetOnWakeEnabled: Bool
-    @Published var autoStartTimersOnLaunch: Bool
     @Published var showStartNotification: Bool
 
     // 多计时器支持
@@ -667,14 +665,13 @@ final class AppSettings: ObservableObject {
         // Load - 静默启动设置
         self.silentLaunch = defaults.object(forKey: Keys.silentLaunch) as? Bool ?? false
         self.resetOnWakeEnabled = defaults.object(forKey: Keys.resetOnWake) as? Bool ?? config.system.resetOnWake
-        self.autoStartTimersOnLaunch = defaults.object(forKey: Keys.autoStartTimersOnLaunch) as? Bool ?? false
         self.showStartNotification = defaults.object(forKey: Keys.showStartNotification) as? Bool ?? true
 
         // Load - 多计时器
         if let timersData = defaults.data(forKey: Keys.timers),
            let decodedTimers = try? JSONDecoder().decode([TimerItem].self, from: timersData),
            !decodedTimers.isEmpty {
-            self.timers = decodedTimers
+            self.timers = Self.normalizedTimerIdentifiers(decodedTimers)
         } else {
             let defaultTimer = TimerItem(
                 emoji: defaults.string(forKey: Keys.notifEmoji) ?? config.notification.emoji,
@@ -686,7 +683,7 @@ final class AppSettings: ObservableObject {
                 customColor: nil,
                 lastFireEpoch: defaults.object(forKey: Keys.lastFire) as? Double ?? 0
             )
-            self.timers = [defaultTimer]
+            self.timers = Self.normalizedTimerIdentifiers([defaultTimer])
         }
 
         // Load - 材质选项
@@ -783,7 +780,6 @@ final class AppSettings: ObservableObject {
         // Persist changes - 静默启动设置
         $silentLaunch.dropFirst().sink { [weak self] in self?.defaults.set($0, forKey: Keys.silentLaunch) }.store(in: &cancellables)
         $resetOnWakeEnabled.dropFirst().sink { [weak self] in self?.defaults.set($0, forKey: Keys.resetOnWake) }.store(in: &cancellables)
-        $autoStartTimersOnLaunch.dropFirst().sink { [weak self] in self?.defaults.set($0, forKey: Keys.autoStartTimersOnLaunch) }.store(in: &cancellables)
         $showStartNotification.dropFirst().sink { [weak self] in self?.defaults.set($0, forKey: Keys.showStartNotification) }.store(in: &cancellables)
 
         // Persist changes - 多计时器
@@ -844,6 +840,31 @@ final class AppSettings: ObservableObject {
         if overlayGlassTintAlpha > 1 { overlayGlassTintAlpha = 1 }
 
         validateTimingSettings()
+    }
+
+    private static func normalizedTimerIdentifiers(_ timers: [TimerItem]) -> [TimerItem] {
+        var seenTimerIDs = Set<UUID>()
+        var seenScheduledTimeIDs = Set<UUID>()
+
+        return timers.map { timer in
+            var normalizedTimer = timer
+            if seenTimerIDs.contains(normalizedTimer.id) {
+                normalizedTimer.id = UUID()
+                normalizedTimer.isRunning = false
+                normalizedTimer.startedAtEpoch = 0
+            }
+            seenTimerIDs.insert(normalizedTimer.id)
+
+            normalizedTimer.scheduledTimes = normalizedTimer.scheduledTimes.map { scheduledTime in
+                var normalizedTime = scheduledTime
+                if seenScheduledTimeIDs.contains(normalizedTime.id) {
+                    normalizedTime.id = UUID()
+                }
+                seenScheduledTimeIDs.insert(normalizedTime.id)
+                return normalizedTime
+            }
+            return normalizedTimer
+        }
     }
 
     func validateTimingSettings() {

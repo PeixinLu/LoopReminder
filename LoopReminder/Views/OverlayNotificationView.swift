@@ -63,6 +63,7 @@ struct OverlayNotificationView: View {
     var glassTintColor: Color = .white
     var glassTintAlpha: Double = 0.618
     var glassTextColorMode: AppSettings.OverlayGlassTextColorMode = .automatic
+    var showsActionButtons: Bool = true
     let onDismiss: (OverlayNotificationDismissReason) -> Void
     
     @State private var opacity: Double = 1.0
@@ -140,20 +141,22 @@ struct OverlayNotificationView: View {
             .padding(.horizontal, overlayWidth < 150 ? 8 : 20)
             .frame(width: overlayWidth, height: overlayHeight)
             .overlay(alignment: .bottomTrailing) {
-                // 操作按钮（右下角内边距）
-                HStack(spacing: 8) {
-                    notificationActionButton(
-                        systemImage: "xmark",
-                        help: "忽略",
-                        color: secondaryTextColor,
-                        useBackground: !isLiquidMaterial
-                    ) {
-                        onDismiss(.ignored)
-                    }
+                if showsActionButtons {
+                    // 操作按钮（右下角内边距）
+                    HStack(spacing: 8) {
+                        notificationActionButton(
+                            systemImage: "xmark",
+                            help: "忽略",
+                            color: secondaryTextColor,
+                            useBackground: !isLiquidMaterial
+                        ) {
+                            onDismiss(.ignored)
+                        }
 
-                    confirmButton(secondaryTextColor: secondaryTextColor)
+                        confirmButton(secondaryTextColor: secondaryTextColor)
+                    }
+                    .padding(12)
                 }
-                .padding(12)
             }
             .modifier(
                 OverlayNotificationMaterialModifier(

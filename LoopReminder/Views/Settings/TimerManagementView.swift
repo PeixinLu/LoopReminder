@@ -116,7 +116,7 @@ struct TimerManagementView: View {
         return Button {
             toggleAllTimers()
         } label: {
-            Label(hasRunningTimer ? "全部停止" : "全部启动", systemImage: hasRunningTimer ? "pause.circle.fill" : "play.circle.fill")
+            Label(hasRunningTimer ? "关闭全部" : "全部开启", systemImage: hasRunningTimer ? "power.circle.fill" : "power.circle")
         }
         .buttonStyle(.bordered)
         .controlSize(.large)
@@ -158,7 +158,6 @@ struct TimerManagementView: View {
             }
             settings.isRunning = false
         } else {
-            settings.isRunning = true
             controller.start(settings: settings)
         }
     }
@@ -191,6 +190,9 @@ struct TimerManagementView: View {
     private func duplicateTimer(_ timer: TimerItem) {
         var copy = timer
         copy.id = UUID()
+        copy.scheduledTimes = copy.scheduledTimes.map {
+            ScheduledTime(id: UUID(), hour: $0.hour, minute: $0.minute, enabled: $0.enabled)
+        }
         copy.title = "\(timer.displayName) 副本"
         copy.isRunning = false
         copy.lastFireEpoch = 0
@@ -296,7 +298,6 @@ private struct TimerManagerListItemView: View {
     let onDelete: () -> Void
 
     @State private var isHovering = false
-    @State private var isToggleHovering = false
     @State private var isEditHovering = false
     @State private var isDeleteHovering = false
     @State private var now = Date()
@@ -306,31 +307,12 @@ private struct TimerManagerListItemView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: DesignTokens.Spacing.md) {
-                Button {
-                    onToggleRunning()
-                } label: {
-                    Image(systemName: timer.isRunning ? "pause.fill" : "play.fill")
-                        .font(.system(size: 20, weight: .semibold))
-                        .foregroundStyle(toggleIconColor)
-                        .frame(width: 44, height: 44)
-                        .background(
-                            RoundedRectangle(cornerRadius: TimerRowMetrics.controlCornerRadius)
-                                .fill(toggleBackgroundColor)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: TimerRowMetrics.controlCornerRadius)
-                                .stroke(toggleBorderColor, lineWidth: 1)
-                        )
-                        .contentShape(RoundedRectangle(cornerRadius: TimerRowMetrics.controlCornerRadius))
-                }
-                .buttonStyle(.plain)
-                .disabled(!timer.isContentValid())
-                .onHover { hovering in
-                    withAnimation(.easeInOut(duration: 0.12)) {
-                        isToggleHovering = hovering
-                    }
-                }
-                .help(timer.isRunning ? "暂停计时器" : "启动计时器")
+                TimerPowerSwitch(
+                    isOn: timer.isRunning,
+                    isEnabled: timer.isContentValid(),
+                    action: onToggleRunning
+                )
+                .help(timer.isRunning ? "关闭计时器" : "开启计时器")
 
                 Text(timer.emoji)
                     .font(.system(size: 30))
@@ -374,7 +356,7 @@ private struct TimerManagerListItemView: View {
                         }
                     }
                     .disabled(timer.isRunning)
-                    .help(timer.isRunning ? "请先暂停才能编辑" : "编辑")
+                    .help(timer.isRunning ? "请先关闭才能编辑" : "编辑")
 
                     Button {
                         onDelete()
@@ -432,7 +414,7 @@ private struct TimerManagerListItemView: View {
             now = date
         }
         .contextMenu {
-            Button(timer.isRunning ? "暂停" : "启动") {
+            Button(timer.isRunning ? "关闭" : "开启") {
                 onToggleRunning()
             }
             .disabled(!timer.isContentValid())
@@ -461,42 +443,6 @@ private struct TimerManagerListItemView: View {
         case .scheduled:
             return "定点｜\(scheduleRuleSummary)"
         }
-    }
-
-    private var toggleIconColor: Color {
-        guard timer.isContentValid() else {
-            return Color.secondary.opacity(0.45)
-        }
-
-        if timer.isRunning {
-            return Color.orange.opacity(isToggleHovering ? 1 : 0.88)
-        }
-
-        return Color.green.opacity(isToggleHovering ? 1 : 0.88)
-    }
-
-    private var toggleBackgroundColor: Color {
-        guard timer.isContentValid() else {
-            return Color.secondary.opacity(0.08)
-        }
-
-        if timer.isRunning {
-            return Color.orange.opacity(isToggleHovering ? 0.17 : 0.12)
-        }
-
-        return Color.green.opacity(isToggleHovering ? 0.15 : 0.10)
-    }
-
-    private var toggleBorderColor: Color {
-        guard timer.isContentValid() else {
-            return Color.secondary.opacity(0.12)
-        }
-
-        if timer.isRunning {
-            return Color.orange.opacity(isToggleHovering ? 0.28 : 0.18)
-        }
-
-        return Color.green.opacity(isToggleHovering ? 0.24 : 0.14)
     }
 
     private var scheduleRuleSummary: String {

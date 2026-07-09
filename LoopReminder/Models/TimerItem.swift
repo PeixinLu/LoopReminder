@@ -76,7 +76,7 @@ struct TimerItem: Identifiable, Codable {
     var restSeconds: Double // 休息时长（秒）
     var customColor: TimerColor? // 自定义颜色（优先于全局样式）
     var lastFireEpoch: Double // 上次触发时间
-    var isRunning: Bool = false // 是否正在运行（不持久化）
+    var isRunning: Bool = false // 是否开启（持久化，用于重启后恢复）
 
     // 提醒类型
     var reminderType: ReminderType = .interval
@@ -236,7 +236,7 @@ struct TimerItem: Identifiable, Codable {
         soundName = container.contains(.soundName) ? try container.decodeIfPresent(String.self, forKey: .soundName) : "Glass"
         stayDurationMode = try container.decodeIfPresent(StayDurationMode.self, forKey: .stayDurationMode) ?? .untilNextNotification
         stayDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .stayDurationSeconds) ?? 5.0
-        isRunning = false
+        isRunning = try container.decodeIfPresent(Bool.self, forKey: .isRunning) ?? false
         startedAtEpoch = 0
     }
     
@@ -304,11 +304,10 @@ struct TimerItem: Identifiable, Codable {
         return !trimmedTitle.isEmpty || !trimmedBody.isEmpty || !trimmedEmoji.isEmpty
     }
     
-    // Codable: 不序列化 isRunning 字段
     enum CodingKeys: String, CodingKey {
         case id, emoji, title, body, intervalSeconds
         case isRestEnabled, restSeconds, customColor, lastFireEpoch
         case reminderType, scheduledTimes, soundName
-        case stayDurationMode, stayDurationSeconds
+        case stayDurationMode, stayDurationSeconds, isRunning
     }
 }

@@ -188,11 +188,11 @@ struct SettingsSection<Content: View>: View {
 
 // MARK: - 锁定状态提示组件
 
-/// 运行中锁定状态提示
+/// 开启时锁定状态提示
 struct LockHint: View {
     let message: String
     
-    init(_ message: String = "请先暂停才能修改") {
+    init(_ message: String = "请先关闭才能修改") {
         self.message = message
     }
     
@@ -551,11 +551,11 @@ struct WarningCard<Content: View>: View {
 
 // MARK: - 锁定状态卡片
 
-/// 运行中锁定提示卡片
+/// 开启时锁定提示卡片
 struct LockCard: View {
     let message: String
     
-    init(message: String = "请先暂停才能修改") {
+    init(message: String = "请先关闭才能修改") {
         self.message = message
     }
     

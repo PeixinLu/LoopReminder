@@ -1,5 +1,26 @@
 import SwiftUI
 
+private enum MenuBarPreviewTuning {
+    static let menuWidth: CGFloat = 280
+
+    static let textButtonHeight: CGFloat = 30
+    static let textButtonCornerRadius: CGFloat = 7
+    static let textButtonHorizontalPadding: CGFloat = 8
+
+    static let pillButtonWidth: CGFloat? = nil
+    static let pillButtonHeight: CGFloat = 24
+    static let pillButtonCornerRadius: CGFloat = 12
+    static let pillButtonHorizontalPadding: CGFloat = 8
+
+    static let timerRowHeight: CGFloat? = nil
+    static let timerRowCornerRadius: CGFloat = 12
+
+    static let timerSwitchWidth: CGFloat = 38
+    static let timerSwitchHeight: CGFloat = 24
+    static let timerSwitchKnobWidth: CGFloat = 6
+    static let timerSwitchKnobHeight: CGFloat = 16
+}
+
 /// 菜单栏下拉视图
 struct MenuBarView: View {
     @EnvironmentObject private var settings: AppSettings
@@ -31,8 +52,8 @@ struct MenuBarView: View {
 
                     let hasRunningTimer = settings.timers.contains(where: { $0.isRunning })
                     MenuBarPillButton(
-                        icon: hasRunningTimer ? "stop.fill" : "play.fill",
-                        title: hasRunningTimer ? "全部停止" : "全部启动",
+                        icon: hasRunningTimer ? "power.circle.fill" : "power.circle",
+                        title: hasRunningTimer ? "关闭全部" : "全部开启",
                         tint: hasRunningTimer ? .orange : .green,
                         action: toggleAll
                     )
@@ -60,7 +81,7 @@ struct MenuBarView: View {
             )
         }
         .padding(12)
-        .frame(width: 280)
+        .frame(width: MenuBarPreviewTuning.menuWidth)
     }
 
     // MARK: - Actions
@@ -84,14 +105,13 @@ struct MenuBarView: View {
             }
             settings.isRunning = false
         } else {
-            // 启动所有有效的计时器
-            settings.isRunning = true
+            // 开启所有有效的计时器
             controller.start(settings: settings)
         }
     }
 
     private func toggleTimer(_ timer: TimerItem) {
-        // 编辑态下禁止启动
+        // 编辑态下禁止开启
         guard settings.editingTimerID != timer.id else { return }
         if timer.isRunning {
             controller.stopTimer(timer.id, settings: settings)
@@ -111,6 +131,9 @@ struct MenuBarTextButton: View {
     let icon: String
     let title: String
     let shortcut: String
+    var height: CGFloat = MenuBarPreviewTuning.textButtonHeight
+    var cornerRadius: CGFloat = MenuBarPreviewTuning.textButtonCornerRadius
+    var horizontalPadding: CGFloat = MenuBarPreviewTuning.textButtonHorizontalPadding
     let action: () -> Void
 
     @State private var isHovered = false
@@ -138,10 +161,10 @@ struct MenuBarTextButton: View {
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.horizontal, horizontalPadding)
+            .frame(height: height)
             .background(
-                RoundedRectangle(cornerRadius: 7)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(Color.primary.opacity(appearance.backgroundOpacity))
             )
             .contentShape(Rectangle())
@@ -181,6 +204,10 @@ struct MenuBarPillButton: View {
     let icon: String
     let title: String
     let tint: Color
+    var width: CGFloat? = MenuBarPreviewTuning.pillButtonWidth
+    var height: CGFloat = MenuBarPreviewTuning.pillButtonHeight
+    var cornerRadius: CGFloat = MenuBarPreviewTuning.pillButtonCornerRadius
+    var horizontalPadding: CGFloat = MenuBarPreviewTuning.pillButtonHorizontalPadding
     let action: () -> Void
 
     @State private var isHovered = false
@@ -199,17 +226,17 @@ struct MenuBarPillButton: View {
                     .font(.system(size: 11))
             }
             .foregroundStyle(tint)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, horizontalPadding)
+            .frame(width: width, height: height)
             .background(
-                Capsule()
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .fill(tint.opacity(isHovered ? 0.24 : 0.15))
             )
             .overlay(
-                Capsule()
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .stroke(tint.opacity(isHovered ? 0.35 : 0), lineWidth: 1)
             )
-            .contentShape(Capsule())
+            .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .scaleEffect(appearance.scale)
         }
         .buttonStyle(PressablePlainButtonStyle())
@@ -280,6 +307,12 @@ struct MenuBarButton: View {
 struct TimerRowView: View {
     let timer: TimerItem
     let isEditingDisabled: Bool
+    var rowHeight: CGFloat? = MenuBarPreviewTuning.timerRowHeight
+    var rowCornerRadius: CGFloat = MenuBarPreviewTuning.timerRowCornerRadius
+    var switchWidth: CGFloat = MenuBarPreviewTuning.timerSwitchWidth
+    var switchHeight: CGFloat = MenuBarPreviewTuning.timerSwitchHeight
+    var switchKnobWidth: CGFloat = MenuBarPreviewTuning.timerSwitchKnobWidth
+    var switchKnobHeight: CGFloat = MenuBarPreviewTuning.timerSwitchKnobHeight
     let onToggle: () -> Void
 
     @State private var isHovered = false
@@ -306,55 +339,61 @@ struct TimerRowView: View {
         let isEnabled = timer.isContentValid() && !isEditingDisabled
         let appearance = MenuBarControlAppearance(isHovered: isHovered, isPressed: false, isEnabled: isEnabled)
 
-        Button(action: onToggle) {
-            HStack(spacing: 10) {
-                // Emoji 图标
-                Text(timer.emoji)
-                    .font(.system(size: 16))
-                    .frame(width: 24)
+        HStack(spacing: 10) {
+            // Emoji 图标
+            Text(timer.emoji)
+                .font(.system(size: 16))
+                .frame(width: 24)
 
-                // 计时器名称和状态
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(timer.displayName)
-                        .font(.system(size: 13, weight: .medium))
-                        .lineLimit(1)
+            // 计时器名称和状态
+            VStack(alignment: .leading, spacing: 2) {
+                Text(timer.displayName)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
 
-                    // 显示类型和间隔/定点时间
-                    HStack(spacing: 4) {
-                        if timer.isRunning {
-                            Circle()
-                                .fill(.green)
-                                .frame(width: 6, height: 6)
-                        }
-                        Text(scheduleText)
-                            .font(.caption2)
-                            .foregroundStyle(timer.isRunning ? .green : .secondary)
+                // 显示类型和间隔/定点时间
+                HStack(spacing: 4) {
+                    if timer.isRunning {
+                        Circle()
+                            .fill(.green)
+                            .frame(width: 6, height: 6)
                     }
+                    Text(scheduleText)
+                        .font(.caption2)
+                        .foregroundStyle(timer.isRunning ? .green : .secondary)
                 }
-
-                Spacer()
-
-                TimerToggleIndicator(
-                    isRunning: timer.isRunning,
-                    isEnabled: isEnabled,
-                    isHovered: isHovered
-                )
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.primary.opacity(appearance.backgroundOpacity + 0.05))
+
+            Spacer()
+
+            TimerPowerSwitch(
+                isOn: timer.isRunning,
+                isEnabled: isEnabled,
+                cornerRadius: 10, width: switchWidth,
+                height: switchHeight,
+                knobWidth: switchKnobWidth,
+                knobHeight: switchKnobHeight,
+                action: {}
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color.primary.opacity(isHovered && isEnabled ? 0.12 : 0), lineWidth: 1)
-            )
-            .contentShape(Rectangle())
-            .opacity(appearance.foregroundOpacity)
+            .allowsHitTesting(false)
         }
-        .buttonStyle(PressablePlainButtonStyle())
-        .disabled(!isEnabled)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(height: rowHeight)
+        .background(
+            RoundedRectangle(cornerRadius: rowCornerRadius, style: .continuous)
+                .fill(Color.primary.opacity(appearance.backgroundOpacity + 0.05))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: rowCornerRadius, style: .continuous)
+                .stroke(Color.primary.opacity(isHovered && isEnabled ? 0.12 : 0), lineWidth: 1)
+        )
+        .contentShape(Rectangle())
+        .opacity(appearance.foregroundOpacity)
+        .onTapGesture {
+            guard isEnabled else { return }
+            onToggle()
+        }
         .onHover { hovering in
             withAnimation(.easeOut(duration: 0.12)) {
                 isHovered = hovering
@@ -368,39 +407,6 @@ struct TimerRowView: View {
     }
 }
 
-struct TimerToggleIndicator: View {
-    let isRunning: Bool
-    let isEnabled: Bool
-    let isHovered: Bool
-
-    private var appearance: MenuBarControlAppearance {
-        MenuBarControlAppearance(isHovered: isHovered, isPressed: false, isEnabled: isEnabled)
-    }
-
-    private var tint: Color {
-        isRunning ? .orange : .green
-    }
-
-    var body: some View {
-        Image(systemName: isRunning ? "stop.fill" : "play.fill")
-            .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.white)
-            .frame(width: 28, height: 28)
-            .background(
-                Circle()
-                    .fill(tint)
-            )
-            .overlay(
-                Circle()
-                    .stroke(Color.white.opacity(isHovered && isEnabled ? 0.45 : 0), lineWidth: 1)
-            )
-            .shadow(color: tint.opacity(isHovered && isEnabled ? 0.35 : 0), radius: 4, y: 1)
-            .scaleEffect(appearance.scale)
-            .opacity(appearance.foregroundOpacity)
-            .accessibilityHidden(true)
-    }
-}
-
 struct PressablePlainButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -411,8 +417,155 @@ struct PressablePlainButtonStyle: ButtonStyle {
 
 // MARK: - Preview
 
-#Preview {
+#Preview("菜单栏菜单 - 混合状态") {
+    let settings = MenuBarPreviewData.settings
     MenuBarView()
-        .environmentObject(AppSettings())
+        .environmentObject(settings)
         .environmentObject(ReminderController())
+}
+
+#Preview("菜单栏按钮外观") {
+    VStack(alignment: .leading, spacing: 12) {
+        MenuBarTextButton(
+            icon: "gearshape",
+            title: "打开设置",
+            shortcut: "⌘,",
+            action: {}
+        )
+
+        HStack(spacing: 8) {
+            Text("计时器")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            Spacer()
+
+            MenuBarPillButton(
+                icon: "power.circle",
+                title: "全部开启",
+                tint: .green,
+                action: {}
+            )
+
+            MenuBarPillButton(
+                icon: "power.circle.fill",
+                title: "关闭全部",
+                tint: .orange,
+                action: {}
+            )
+        }
+        .padding(.horizontal, 8)
+
+        HStack(spacing: 8) {
+            MenuBarPillButton(
+                icon: "power.circle",
+                title: "宽 74 高 24",
+                tint: .green,
+                width: 74,
+                height: 24,
+                cornerRadius: 8,
+                action: {}
+            )
+
+            MenuBarPillButton(
+                icon: "power.circle.fill",
+                title: "宽 82 高 28",
+                tint: .orange,
+                width: 82,
+                height: 28,
+                cornerRadius: 10,
+                action: {}
+            )
+        }
+        .padding(.horizontal, 8)
+
+        TimerRowView(
+            timer: MenuBarPreviewData.enabledIntervalTimer,
+            isEditingDisabled: false,
+            onToggle: {}
+        )
+
+        TimerRowView(
+            timer: MenuBarPreviewData.disabledScheduledTimer,
+            isEditingDisabled: false,
+            onToggle: {}
+        )
+
+        TimerRowView(
+            timer: MenuBarPreviewData.editingTimer,
+            isEditingDisabled: true,
+            switchWidth: 52,
+            switchHeight: 32,
+            switchKnobWidth: 8,
+            switchKnobHeight: 20,
+            onToggle: {}
+        )
+
+        Divider()
+            .padding(.horizontal, 4)
+
+        MenuBarTextButton(
+            icon: "rectangle.portrait.and.arrow.right",
+            title: "退出 LoopReminder",
+            shortcut: "⌘Q",
+            action: {}
+        )
+    }
+    .padding(12)
+    .frame(width: MenuBarPreviewTuning.menuWidth)
+}
+
+@MainActor
+private enum MenuBarPreviewData {
+    static var settings: AppSettings {
+        let settings = AppSettings()
+        let timers = [
+            enabledIntervalTimer,
+            disabledScheduledTimer,
+            editingTimer
+        ]
+        settings.timers = timers
+        settings.focusedTimerID = timers.first?.id
+        settings.editingTimerID = editingTimer.id
+        settings.isRunning = timers.contains { $0.isRunning }
+        return settings
+    }
+
+    static var enabledIntervalTimer: TimerItem {
+        var timer = TimerItem(
+            emoji: "💧",
+            title: "喝水",
+            body: "保持补水",
+            intervalSeconds: 900,
+            customColor: .init(colorType: .blue)
+        )
+        timer.isRunning = true
+        timer.startedAtEpoch = Date().timeIntervalSince1970
+        timer.lastFireEpoch = Date().addingTimeInterval(-280).timeIntervalSince1970
+        return timer
+    }
+
+    static var disabledScheduledTimer: TimerItem {
+        TimerItem(
+            emoji: "🌙",
+            title: "晚间复盘",
+            body: "记录今天的重要事项",
+            customColor: .init(colorType: .violet),
+            reminderType: .scheduled,
+            scheduledTimes: [
+                ScheduledTime(hour: 21, minute: 30),
+                ScheduledTime(hour: 22, minute: 45)
+            ]
+        )
+    }
+
+    static var editingTimer: TimerItem {
+        TimerItem(
+            emoji: "🧘",
+            title: "活动一下",
+            body: "离开座位走一走",
+            intervalSeconds: 1800,
+            customColor: .init(colorType: .emerald)
+        )
+    }
 }

@@ -57,26 +57,12 @@ struct BasicSettingsView: View {
 
                 Divider().opacity(0.5)
 
-                // 启动时自动开始计时
-                SettingToggleRow(
-                    icon: "play.circle.fill",
-                    iconColor: .accentColor,
-                    title: "启动时自动开始计时",
-                    description: "应用启动后自动运行所有计时器"
-                ) {
-                    Toggle("", isOn: $settings.autoStartTimersOnLaunch)
-                        .labelsHidden()
-                        .toggleStyle(.switch)
-                }
-
-                Divider().opacity(0.5)
-
-                // 启动计时器时显示提示
+                // 开启计时器时显示提示
                 SettingToggleRow(
                     icon: "bell.badge",
                     iconColor: .accentColor,
-                    title: "启动计时器时显示提示",
-                    description: "启动或重置计时器时显示通知提示"
+                    title: "开启计时器时显示提示",
+                    description: "开启或重置计时器时显示通知提示"
                 ) {
                     Toggle("", isOn: $settings.showStartNotification)
                         .labelsHidden()
@@ -89,8 +75,8 @@ struct BasicSettingsView: View {
                 SettingToggleRow(
                     icon: "lock.rotation",
                     iconColor: .accentColor,
-                    title: "从锁屏唤醒后重新计时",
-                    description: "锁屏超过 5 分钟重新进入系统时，自动重置计时器"
+                    title: "从锁屏唤醒后重置循环提醒的倒计时",
+                    description: "锁屏超过 5 分钟后重新进入系统时，仅重置已开启的循环提醒"
                 ) {
                     Toggle("", isOn: $settings.resetOnWakeEnabled)
                         .labelsHidden()

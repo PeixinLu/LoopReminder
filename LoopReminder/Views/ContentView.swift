@@ -9,7 +9,7 @@ struct ContentView: View {
                 .font(.title2)
                 .bold()
 
-            Text(settings.isRunning ? "状态：运行中" : "状态：已暂停")
+            Text(settings.isRunning ? "状态：已开启" : "状态：已关闭")
                 .foregroundStyle(settings.isRunning ? .green : .secondary)
 
             HStack {
@@ -21,7 +21,7 @@ struct ContentView: View {
 
             Divider()
 
-            Text("提示：这是一个菜单栏应用。打开菜单栏图标进行 启动/暂停、配置、退出。")
+            Text("提示：这是一个菜单栏应用。打开菜单栏图标进行 开启/关闭、配置、退出。")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
