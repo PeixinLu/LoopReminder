@@ -333,17 +333,19 @@ struct TimerListItemView: View {
             // 进度条
             if timer.isRunning {
                 VStack(spacing: 4) {
-                    ZStack(alignment: .leading) {
-                        Rectangle()
-                            .fill(isResting ? Color.purple.opacity(0.15) : Color.green.opacity(0.15))
-                            .frame(height: 3)
-                        
-                        Rectangle()
-                            .fill(isResting ? Color.purple.opacity(0.62) : Color.green)
-                            .frame(width: progressWidth, height: 3)
-                            .animation(.linear(duration: 0.3), value: progressValue)
+                    GeometryReader { proxy in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(isResting ? Color.purple.opacity(0.10) : Color.green.opacity(0.10))
+
+                            Capsule()
+                                .fill(isResting ? Color.purple.opacity(0.46) : Color.green.opacity(0.48))
+                                .frame(width: proxy.size.width * progressValue)
+                                .animation(.linear(duration: 0.3), value: progressValue)
+                        }
                     }
-                    .padding(.horizontal, DesignTokens.Spacing.sm)
+                    .frame(height: 4)
+                    .padding(.horizontal, DesignTokens.Spacing.md)
                     
                     if !countdownText.isEmpty {
                         HStack {
@@ -381,11 +383,6 @@ struct TimerListItemView: View {
                 updateCountdown()
             }
         }
-    }
-    
-    private var progressWidth: CGFloat {
-        // 计算进度条宽度
-        return 316 * progressValue // 340 - 2*12 padding
     }
     
     private func updateCountdown() {

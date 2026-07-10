@@ -531,14 +531,15 @@ private struct TimerProgressFooterView: View {
             if timer.reminderType == .interval {
                 GeometryReader { proxy in
                     ZStack(alignment: .leading) {
-                        Rectangle()
-                            .fill(state.isResting ? Color.purple.opacity(0.14) : Color.green.opacity(0.14))
-                        Rectangle()
-                            .fill(state.isResting ? Color.purple.opacity(0.62) : Color.green)
+                        Capsule()
+                            .fill(state.isResting ? Color.purple.opacity(0.10) : Color.green.opacity(0.10))
+                        Capsule()
+                            .fill(state.isResting ? Color.purple.opacity(0.46) : Color.green.opacity(0.48))
                             .frame(width: proxy.size.width * state.progress)
                     }
                 }
-                .frame(height: 3)
+                .frame(height: 4)
+                .padding(.horizontal, DesignTokens.Spacing.md)
             }
 
             HStack {
