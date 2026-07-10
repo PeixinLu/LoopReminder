@@ -8,12 +8,18 @@ import os
 final class ReminderController: ObservableObject {
     private static let stylePreviewTimerID = UUID(uuidString: "00000000-0000-0000-0000-00000000A11E") ?? UUID()
 
+    private enum SuspensionKind: Equatable {
+        case screenLock
+        case systemSleep
+    }
+
     @Published var isResting: Bool = false
 
     // 多计时器支持
     private var timers: [UUID: Timer] = [:] // 每个计时器的 Timer
     private var restTimers: [UUID: Timer] = [:] // 每个计时器的休息 Timer
     private var restingTimers: Set<UUID> = [] // 正在休息的计时器
+    private var restDueDates: [UUID: Date] = [:]
 
     // 定点提醒支持
     private var scheduledTimers: [UUID: Timer] = [:] // 定点提醒的 Timer，key 为 ScheduledTime.id
@@ -33,7 +39,11 @@ final class ReminderController: ObservableObject {
     private weak var settingsRef: AppSettings?
     private var lockObserver: NSObjectProtocol?
     private var unlockObserver: NSObjectProtocol?
-    private var lastLockDate: Date?
+    private var workspaceWillSleepObserver: NSObjectProtocol?
+    private var workspaceDidWakeObserver: NSObjectProtocol?
+    private var suspensionStartedAt: Date?
+    private var suspensionKind: SuspensionKind?
+    private var lastRecoveryAt: Date?
     private let logger = EventLogger.shared
     private struct NotificationContent {
         var emoji: String
@@ -86,7 +96,7 @@ final class ReminderController: ObservableObject {
 
     func start(settings: AppSettings) {
         settingsRef = settings
-        ensureLockMonitoring()
+        ensureLifecycleMonitoring()
         stopRuntime(markTimersOff: false)
 
         // 启动所有有效的计时器，根据各自的提醒类型调度
@@ -117,7 +127,7 @@ final class ReminderController: ObservableObject {
 
     func restoreEnabledTimers(settings: AppSettings) {
         settingsRef = settings
-        ensureLockMonitoring()
+        ensureLifecycleMonitoring()
         stopRuntime(markTimersOff: false, closeNotifications: false)
 
         let enabledTimerIDs = settings.timers.filter(\.isRunning).map(\.id)
@@ -190,24 +200,7 @@ final class ReminderController: ObservableObject {
 
     /// 计算下一个触发时间
     private func calculateNextFireDate(hour: Int, minute: Int) -> Date {
-        let now = Date()
-        let calendar = Calendar.current
-
-        // 构造今天的指定时间
-        var components = calendar.dateComponents([.year, .month, .day], from: now)
-        components.hour = hour
-        components.minute = minute
-        components.second = 0
-
-        let todayTarget = calendar.date(from: components) ?? now
-
-        // 如果今天的指定时间已经过了，则设置为明天
-        if todayTarget <= now {
-            components.day! += 1
-            return calendar.date(from: components) ?? now
-        } else {
-            return todayTarget
-        }
+        ReminderRecoverySchedule.nextScheduledDate(hour: hour, minute: minute, now: Date())
     }
 
     /// 安排定点提醒定时器
@@ -273,6 +266,7 @@ final class ReminderController: ObservableObject {
         }
         restTimers.removeAll()
         restingTimers.removeAll()
+        restDueDates.removeAll()
 
         // 停止定点提醒计时器
         for (_, timer) in scheduledTimers {
@@ -313,7 +307,7 @@ final class ReminderController: ObservableObject {
         }
 
         settingsRef = settings
-        ensureLockMonitoring()
+        ensureLifecycleMonitoring()
 
         // 如果已经开启，先取消旧调度再重排
         if isTimerScheduled(timerID, settings: settings) {
@@ -360,19 +354,10 @@ final class ReminderController: ObservableObject {
             restTimers.removeValue(forKey: timerID)
         }
         restingTimers.remove(timerID)
+        restDueDates.removeValue(forKey: timerID)
         updateRestingState()
 
-        // 停止该计时器关联的所有定点提醒定时器
-        let ownedTimeIDs = scheduledTimerOwners
-            .filter { $0.value == timerID }
-            .map(\.key)
-        for timeID in ownedTimeIDs {
-            if let scheduledTimer = scheduledTimers[timeID] {
-                scheduledTimer.invalidate()
-            }
-            scheduledTimers.removeValue(forKey: timeID)
-            scheduledTimerOwners.removeValue(forKey: timeID)
-        }
+        invalidateScheduledTimers(for: timerID)
 
         setTimerSwitch(timerID, isOn: false, settings: settings)
         
@@ -406,6 +391,19 @@ final class ReminderController: ObservableObject {
         
         if let timerName = settings.timers.first(where: { $0.id == timerID })?.displayName {
             logger.log("关闭计时器: \(timerName)")
+        }
+    }
+
+    private func invalidateScheduledTimers(for timerID: UUID) {
+        let ownedTimeIDs = scheduledTimerOwners
+            .filter { $0.value == timerID }
+            .map(\.key)
+        for timeID in ownedTimeIDs {
+            if let scheduledTimer = scheduledTimers[timeID] {
+                scheduledTimer.invalidate()
+            }
+            scheduledTimers.removeValue(forKey: timeID)
+            scheduledTimerOwners.removeValue(forKey: timeID)
         }
     }
 
@@ -443,18 +441,22 @@ final class ReminderController: ObservableObject {
         RunLoop.main.add(t, forMode: .common)
     }
 
-    private func scheduleRestTimer(for timerID: UUID, timerItem: TimerItem, settings: AppSettings) {
+    private func scheduleRestTimer(for timerID: UUID, timerItem: TimerItem, settings: AppSettings, fireAt date: Date? = nil) {
         restingTimers.insert(timerID)
         updateRestingState()
         let restInterval = timerItem.restSeconds
+        let fireDate = date ?? Date().addingTimeInterval(restInterval)
+        restDueDates[timerID] = fireDate
 
         // 更新UI状态
         if let index = settings.timers.firstIndex(where: { $0.id == timerID }) {
-            settings.timers[index].lastFireEpoch = Date().timeIntervalSince1970
+            settings.timers[index].lastFireEpoch = fireDate.timeIntervalSince1970 - restInterval
         }
 
-        let t = Timer.scheduledTimer(withTimeInterval: restInterval, repeats: false) { [weak self, weak settings] _ in
+        let t = Timer(fire: fireDate, interval: 0, repeats: false) { [weak self, weak settings] _ in
             guard let self, let settings else { return }
+            self.restTimers.removeValue(forKey: timerID)
+            self.restDueDates.removeValue(forKey: timerID)
             self.restingTimers.remove(timerID)
             self.updateRestingState()
             // 休息结束后，安排下一次常规通知
@@ -468,6 +470,7 @@ final class ReminderController: ObservableObject {
             }
         }
         self.restTimers[timerID] = t
+        RunLoop.main.add(t, forMode: .common)
     }
     
     private func updateRestingState() {
@@ -746,37 +749,53 @@ final class ReminderController: ObservableObject {
         return bestMatch == .darkAqua
     }
     
-    // MARK: - Lock/Unlock Handling
-    
-    private func ensureLockMonitoring() {
-        let center = DistributedNotificationCenter.default()
-        
+    // MARK: - Sleep / Wake Recovery
+
+    private func ensureLifecycleMonitoring() {
+        let distributedCenter = DistributedNotificationCenter.default()
+
         if lockObserver == nil {
-            lockObserver = center.addObserver(forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: nil) { [weak self] _ in
-                Task { @MainActor in
-                    self?.lastLockDate = Date()
+            lockObserver = distributedCenter.addObserver(forName: Notification.Name("com.apple.screenIsLocked"), object: nil, queue: nil) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.recordSuspensionStart(kind: .screenLock)
                 }
             }
         }
-        
+
         if unlockObserver == nil {
-            unlockObserver = center.addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: nil) { [weak self] _ in
-                Task { @MainActor in
-                    self?.handleUnlock()
+            unlockObserver = distributedCenter.addObserver(forName: Notification.Name("com.apple.screenIsUnlocked"), object: nil, queue: nil) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleRecovery()
+                }
+            }
+        }
+
+        let workspaceCenter = NSWorkspace.shared.notificationCenter
+        if workspaceWillSleepObserver == nil {
+            workspaceWillSleepObserver = workspaceCenter.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.recordSuspensionStart(kind: .systemSleep)
+                }
+            }
+        }
+
+        if workspaceDidWakeObserver == nil {
+            workspaceDidWakeObserver = workspaceCenter.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    self?.handleRecovery()
                 }
             }
         }
     }
-    
-    private func removeLockObservers() {
-        let center = DistributedNotificationCenter.default()
-        if let observer = lockObserver {
-            center.removeObserver(observer)
-            lockObserver = nil
+
+    private func recordSuspensionStart(kind: SuspensionKind) {
+        if suspensionStartedAt == nil {
+            suspensionStartedAt = Date()
         }
-        if let observer = unlockObserver {
-            center.removeObserver(observer)
-            unlockObserver = nil
+        if kind == .systemSleep {
+            suspensionKind = .systemSleep
+        } else if suspensionKind == nil {
+            suspensionKind = .screenLock
         }
     }
     
@@ -790,6 +809,13 @@ final class ReminderController: ObservableObject {
             if let observer = self.unlockObserver {
                 center.removeObserver(observer)
             }
+            let workspaceCenter = NSWorkspace.shared.notificationCenter
+            if let observer = self.workspaceWillSleepObserver {
+                workspaceCenter.removeObserver(observer)
+            }
+            if let observer = self.workspaceDidWakeObserver {
+                workspaceCenter.removeObserver(observer)
+            }
             if let monitor = self.overlayMouseLocalMonitor {
                 NSEvent.removeMonitor(monitor)
                 self.overlayMouseLocalMonitor = nil
@@ -801,16 +827,80 @@ final class ReminderController: ObservableObject {
         }
     }
     
-    private func handleUnlock() {
-        guard let settings = settingsRef, settings.resetOnWakeEnabled else { return }
-        guard let lockDate = lastLockDate else { return }
-        lastLockDate = nil
-        
-        let elapsed = Date().timeIntervalSince(lockDate)
-        guard elapsed >= 300 else { return } // 锁屏超过5分钟重置循环提醒
-        guard settings.timers.contains(where: { $0.isRunning && $0.reminderType == .interval && $0.isContentValid() }) else { return }
-        
-        resetIntervalTimersAfterUnlock(settings: settings)
+    private func handleRecovery() {
+        guard let settings = settingsRef else { return }
+
+        let now = Date()
+        if let lastRecoveryAt, now.timeIntervalSince(lastRecoveryAt) < 1 {
+            return
+        }
+        lastRecoveryAt = now
+
+        let suspensionStart = suspensionStartedAt
+        let didSleep = suspensionKind == .systemSleep
+        suspensionStartedAt = nil
+        suspensionKind = nil
+        recoverActiveTimers(settings: settings, suspendedFrom: didSleep ? suspensionStart : nil, now: now)
+
+        let elapsed = suspensionStart.map { now.timeIntervalSince($0) } ?? 0
+        if ReminderRecoverySchedule.shouldResetInterval(isEnabled: settings.resetOnWakeEnabled, elapsed: elapsed) {
+            resetIntervalTimersAfterUnlock(settings: settings)
+        }
+    }
+
+    private func recoverActiveTimers(settings: AppSettings, suspendedFrom: Date?, now: Date) {
+        let activeTimers = settings.timers.filter { $0.isRunning && $0.isContentValid() }
+
+        for timer in activeTimers {
+            switch timer.reminderType {
+            case .interval:
+                if let activeTimer = timers[timer.id] {
+                    activeTimer.invalidate()
+                    timers.removeValue(forKey: timer.id)
+                }
+
+                if restingTimers.contains(timer.id) {
+                    if let restTimer = restTimers[timer.id] {
+                        restTimer.invalidate()
+                        restTimers.removeValue(forKey: timer.id)
+                    }
+                    let restDueDate = restDueDates[timer.id] ?? Date(timeIntervalSince1970: timer.lastFireEpoch + timer.restSeconds)
+                    scheduleRestTimer(for: timer.id, timerItem: timer, settings: settings, fireAt: max(now, restDueDate))
+                } else {
+                    let nextDate = ReminderRecoverySchedule.nextIntervalDate(
+                        lastFireEpoch: timer.lastFireEpoch,
+                        interval: timer.intervalSeconds,
+                        now: now
+                    )
+                    scheduleTimer(for: timer.id, fireAt: nextDate, interval: timer.intervalSeconds, settings: settings)
+                }
+
+            case .scheduled:
+                invalidateScheduledTimers(for: timer.id)
+
+                if let suspendedFrom {
+                    for missedTime in ReminderRecoverySchedule.missedScheduledTimes(
+                        times: timer.scheduledTimes,
+                        from: suspendedFrom,
+                        through: now
+                    ) {
+                        logger.log("定点提醒已错过（系统休眠）：\(timer.displayName) - \(missedTime.formattedTime())")
+                    }
+                }
+
+                for scheduledTime in timer.scheduledTimes {
+                    let nextDate = ReminderRecoverySchedule.nextScheduledDate(
+                        hour: scheduledTime.hour,
+                        minute: scheduledTime.minute,
+                        now: now
+                    )
+                    scheduleScheduledTimer(for: timer, timeID: scheduledTime.id, fireAt: nextDate, settings: settings)
+                }
+            }
+        }
+
+        updateRestingState()
+        logger.log("系统唤醒后已恢复 \(activeTimers.count) 个计时器")
     }
     
     private func resetIntervalTimersAfterUnlock(settings: AppSettings) {
@@ -828,6 +918,7 @@ final class ReminderController: ObservableObject {
                 restTimers.removeValue(forKey: timer.id)
             }
             restingTimers.remove(timer.id)
+            restDueDates.removeValue(forKey: timer.id)
             let nextDate = now.addingTimeInterval(timer.intervalSeconds)
             scheduleTimer(for: timer.id, fireAt: nextDate, interval: timer.intervalSeconds, settings: settings)
             setTimerSwitch(timer.id, isOn: true, settings: settings, startedAt: now)
