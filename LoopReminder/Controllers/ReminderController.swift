@@ -19,7 +19,7 @@ final class ReminderController: ObservableObject {
     private var timers: [UUID: Timer] = [:] // 每个计时器的 Timer
     private var restTimers: [UUID: Timer] = [:] // 每个计时器的休息 Timer
     private var restingTimers: Set<UUID> = [] // 正在休息的计时器
-    private var restDueDates: [UUID: Date] = [:]
+    @Published private var restDueDates: [UUID: Date] = [:]
 
     // 定点提醒支持
     private var scheduledTimers: [UUID: Timer] = [:] // 定点提醒的 Timer，key 为 ScheduledTime.id
@@ -475,6 +475,10 @@ final class ReminderController: ObservableObject {
     
     private func updateRestingState() {
         isResting = !restingTimers.isEmpty
+    }
+
+    func restDueDate(for timerID: UUID) -> Date? {
+        restDueDates[timerID]
     }
 
     func sendTest(for timer: TimerItem, settings: AppSettings, skipSound: Bool = false) async {

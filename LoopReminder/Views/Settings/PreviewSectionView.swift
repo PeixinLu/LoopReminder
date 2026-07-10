@@ -275,6 +275,7 @@ struct TimerListItemView: View {
     
     @State private var countdownText: String = ""
     @State private var progressValue: Double = 0.0
+    @State private var isResting = false
     private let timer2 = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     
     var body: some View {
@@ -334,11 +335,11 @@ struct TimerListItemView: View {
                 VStack(spacing: 4) {
                     ZStack(alignment: .leading) {
                         Rectangle()
-                            .fill(Color.green.opacity(0.15))
+                            .fill(isResting ? Color.purple.opacity(0.15) : Color.green.opacity(0.15))
                             .frame(height: 3)
                         
                         Rectangle()
-                            .fill(Color.green)
+                            .fill(isResting ? Color.purple.opacity(0.62) : Color.green)
                             .frame(width: progressWidth, height: 3)
                             .animation(.linear(duration: 0.3), value: progressValue)
                     }
@@ -375,6 +376,11 @@ struct TimerListItemView: View {
                 updateCountdown()
             }
         }
+        .onAppear {
+            if timer.isRunning {
+                updateCountdown()
+            }
+        }
     }
     
     private var progressWidth: CGFloat {
@@ -386,24 +392,33 @@ struct TimerListItemView: View {
         guard timer.isRunning else {
             countdownText = ""
             progressValue = 0.0
+            isResting = false
             return
         }
         
         let now = Date()
-        let lastFire = timer.lastFireDate ?? now
-        let nextFire = lastFire.addingTimeInterval(timer.intervalSeconds)
-        let remaining = nextFire.timeIntervalSince(now)
-        
-        if remaining <= 1.0 {
+        let state = TimerProgressState.make(
+            lastFireEpoch: timer.lastFireEpoch,
+            intervalSeconds: timer.intervalSeconds,
+            restSeconds: timer.restSeconds,
+            restEndsAt: controller.restDueDate(for: timer.id),
+            now: now
+        )
+        isResting = state.isResting
+        progressValue = state.progress
+
+        if state.isResting {
+            countdownText = "休息中 · \(formatRemaining(state.remainingSeconds))"
+            return
+        }
+
+        if state.remainingSeconds <= 1 {
             countdownText = "下次通知：即将发送..."
             progressValue = 1.0
             return
         }
-        
-        let elapsed = timer.intervalSeconds - remaining
-        progressValue = max(0, min(1.0, elapsed / timer.intervalSeconds))
-        
-        let seconds = Int(remaining)
+
+        let seconds = state.remainingSeconds
         let hours = seconds / 3600
         let minutes = (seconds % 3600) / 60
         let secs = seconds % 60
@@ -415,6 +430,16 @@ struct TimerListItemView: View {
         } else {
             countdownText = String(format: "下次通知：%d秒", secs)
         }
+    }
+
+    private func formatRemaining(_ seconds: Int) -> String {
+        if seconds >= 3600 {
+            return String(format: "%d:%02d:%02d", seconds / 3600, (seconds % 3600) / 60, seconds % 60)
+        }
+        if seconds >= 60 {
+            return String(format: "%d:%02d", seconds / 60, seconds % 60)
+        }
+        return String(format: "%d秒", seconds)
     }
 
     /// 格式化提醒计划显示文本

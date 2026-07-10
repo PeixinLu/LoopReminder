@@ -523,17 +523,19 @@ private struct TimerRowActionButton: View {
 private struct TimerProgressFooterView: View {
     let timer: TimerItem
     let now: Date
+    @EnvironmentObject private var controller: ReminderController
 
     var body: some View {
+        let state = progressState
         VStack(spacing: 4) {
             if timer.reminderType == .interval {
                 GeometryReader { proxy in
                     ZStack(alignment: .leading) {
                         Rectangle()
-                            .fill(Color.green.opacity(0.14))
+                            .fill(state.isResting ? Color.purple.opacity(0.14) : Color.green.opacity(0.14))
                         Rectangle()
-                            .fill(Color.green)
-                            .frame(width: proxy.size.width * progress)
+                            .fill(state.isResting ? Color.purple.opacity(0.62) : Color.green)
+                            .frame(width: proxy.size.width * state.progress)
                     }
                 }
                 .frame(height: 3)
@@ -551,20 +553,23 @@ private struct TimerProgressFooterView: View {
         }
     }
 
-    private var progress: Double {
-        guard timer.reminderType == .interval else { return 0 }
-        let last = timer.lastFireDate ?? now
-        let elapsed = now.timeIntervalSince(last)
-        return min(1, max(0, elapsed / max(timer.intervalSeconds, 1)))
+    private var progressState: TimerProgressState {
+        TimerProgressState.make(
+            lastFireEpoch: timer.lastFireEpoch,
+            intervalSeconds: timer.intervalSeconds,
+            restSeconds: timer.restSeconds,
+            restEndsAt: controller.restDueDate(for: timer.id),
+            now: now
+        )
     }
 
     private var nextReminderText: String {
         switch timer.reminderType {
         case .interval:
-            let last = timer.lastFireDate ?? now
-            let next = last.addingTimeInterval(timer.intervalSeconds)
-            let remaining = max(0, Int(next.timeIntervalSince(now)))
-            return "下次通知：\(formatRemaining(remaining))"
+            let state = progressState
+            return state.isResting
+                ? "休息中 · \(formatRemaining(state.remainingSeconds))"
+                : "下次通知：\(formatRemaining(state.remainingSeconds))"
         case .scheduled:
             guard let next = nextScheduledTime else { return "无提醒时间" }
             return "下次提醒：\(next.formattedTime())"
