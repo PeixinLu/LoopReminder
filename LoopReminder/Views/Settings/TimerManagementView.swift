@@ -941,6 +941,7 @@ private struct TimerEditorSheet: View {
     @State private var timer: TimerItem
     @State private var intervalValue: String
     @State private var intervalUnit: TimerTimeUnit
+    @State private var restMinutes: String
     @State private var selectedColorType: TimerItem.TimerColor.ColorType = .blue
     @State private var customColor: Color = .blue
     @State private var validationMessage: String?
@@ -952,6 +953,7 @@ private struct TimerEditorSheet: View {
         let initialUnit: TimerTimeUnit = draft.timer.intervalSeconds >= 60 && Int(draft.timer.intervalSeconds) % 60 == 0 ? .minutes : .seconds
         self._intervalUnit = State(initialValue: initialUnit)
         self._intervalValue = State(initialValue: initialUnit == .minutes ? String(Int(draft.timer.intervalSeconds / 60)) : String(Int(draft.timer.intervalSeconds)))
+        self._restMinutes = State(initialValue: String(TimerEditorRestSettings.minutes(from: draft.timer.restSeconds)))
     }
 
     var body: some View {
@@ -1009,6 +1011,14 @@ private struct TimerEditorSheet: View {
                 }
 
                 TimerConfigDivider()
+
+                if timer.reminderType == .interval {
+                    TimerConfigRow(title: "休息一下", description: "完成或忽略当前提醒后，暂停下一轮循环") {
+                        RestSettingsEditor(isEnabled: $timer.isRestEnabled, minutes: $restMinutes)
+                    }
+
+                    TimerConfigDivider()
+                }
 
                 TimerConfigRow(title: "通知停留", description: "控制通知显示多久") {
                     StayDurationEditor(mode: $timer.stayDurationMode, seconds: $timer.stayDurationSeconds)
@@ -1070,6 +1080,9 @@ private struct TimerEditorSheet: View {
         if timer.reminderType == .interval {
             let value = Double(intervalValue) ?? 0
             timer.intervalSeconds = max(intervalUnit == .seconds ? 5 : 60, value * intervalUnit.multiplier)
+            if timer.isRestEnabled, let minutes = TimerEditorRestSettings.validatedMinutes(restMinutes) {
+                timer.restSeconds = TimerEditorRestSettings.seconds(fromMinutes: minutes)
+            }
         } else {
             timer.scheduledTimes = uniqueSortedTimes(timer.scheduledTimes)
         }
@@ -1091,6 +1104,10 @@ private struct TimerEditorSheet: View {
             }
             if intervalUnit == .minutes && value < 1 {
                 validationMessage = "单位为分钟时，间隔至少为 1 分钟"
+                return false
+            }
+            if timer.isRestEnabled && TimerEditorRestSettings.validatedMinutes(restMinutes) == nil {
+                validationMessage = "休息时长请填写 1 到 120 分钟的正整数"
                 return false
             }
         } else {
@@ -2126,6 +2143,81 @@ private struct IntervalConfigEditor: View {
 
     private var minimum: Int {
         unit == .seconds ? 5 : 1
+    }
+}
+
+private struct RestSettingsEditor: View {
+    @Binding var isEnabled: Bool
+    @Binding var minutes: String
+
+    private let stepButtonWidth: CGFloat = 34
+    private let valueWidth: CGFloat = 62
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
+            HStack(spacing: DesignTokens.Spacing.sm) {
+                Toggle("启用休息", isOn: $isEnabled)
+                    .toggleStyle(.switch)
+
+                Text(isEnabled ? "休息 \(minutes.isEmpty ? "—" : minutes) 分钟" : "未开启")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            if isEnabled {
+                HStack(spacing: 0) {
+                    stepButton(systemName: "minus", delta: -1, accessibilityLabel: "减少休息时长")
+
+                    TextField("分钟", text: $minutes)
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.center)
+                        .font(.system(.body, design: .rounded))
+                        .monospacedDigit()
+                        .frame(width: valueWidth, height: 30)
+                        .onChange(of: minutes) { _, newValue in
+                            let filtered = newValue.filter(\.isNumber)
+                            if filtered != newValue {
+                                minutes = filtered
+                            }
+                        }
+
+                    stepButton(systemName: "plus", delta: 1, accessibilityLabel: "增加休息时长")
+
+                    Divider()
+                        .frame(width: 1, height: 20)
+
+                    Text("分钟")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 30)
+                }
+                .frame(width: TimerEditorMetrics.compoundControlWidth)
+                .background(
+                    RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
+                        .fill(Color(nsColor: .controlBackgroundColor))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius)
+                        .stroke(Color.secondary.opacity(0.16), lineWidth: 1)
+                )
+                .fixedSize()
+            }
+        }
+    }
+
+    private func stepButton(systemName: String, delta: Int, accessibilityLabel: String) -> some View {
+        Button {
+            let current = TimerEditorRestSettings.validatedMinutes(minutes) ?? 5
+            minutes = String(min(120, max(1, current + delta)))
+        } label: {
+            Image(systemName: systemName)
+                .font(.system(size: 12, weight: .semibold))
+                .frame(width: stepButtonWidth, height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
     }
 }
 
