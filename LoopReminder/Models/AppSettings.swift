@@ -67,6 +67,19 @@ struct DefaultSettingsConfig: Codable {
         let resetOnWake: Bool
     }
 
+    struct ReminderTypeDefaults: Codable {
+        struct ScheduledTimeEntry: Codable {
+            let id: UUID
+            let hour: Int
+            let minute: Int
+            let enabled: Bool
+        }
+
+        let type: String
+        let scheduledTimes: [ScheduledTimeEntry]
+        let cronExpression: String
+    }
+
     let notification: Notification
     let interval: Interval
     let rest: Rest
@@ -75,12 +88,10 @@ struct DefaultSettingsConfig: Codable {
     let animation: Animation
     let screen: Screen
     let system: System
-}
+    let reminderType: ReminderTypeDefaults
 
-@MainActor
-final class AppSettings: ObservableObject {
-    // 默认配置
-    static var defaultConfig: DefaultSettingsConfig = {
+    /// 全局唯一的默认配置，TimerItem 等非 @MainActor 类型也需要读取它
+    static let shared: DefaultSettingsConfig = {
         guard let url = Bundle.main.url(forResource: "DefaultSettings", withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let config = try? JSONDecoder().decode(DefaultSettingsConfig.self, from: data) else {
@@ -88,6 +99,12 @@ final class AppSettings: ObservableObject {
         }
         return config
     }()
+}
+
+@MainActor
+final class AppSettings: ObservableObject {
+    // 默认配置
+    static var defaultConfig: DefaultSettingsConfig { DefaultSettingsConfig.shared }
 
     private enum Keys {
         static let isRunning = "isRunning"
