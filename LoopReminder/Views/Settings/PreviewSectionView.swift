@@ -404,6 +404,14 @@ struct TimerListItemView: View {
         }
         
         let now = Date()
+
+        // 仅间隔提醒有等距进度可算；其余类型直接展示下一次触发时间
+        guard timer.reminderType == .interval else {
+            progressValue = 0
+            countdownText = "下次提醒：\(nextNonIntervalFireDescription(for: timer, now: now))"
+            return
+        }
+
         let lastFire = timer.lastFireDate ?? now
         let nextFire = lastFire.addingTimeInterval(timer.intervalSeconds)
         let remaining = nextFire.timeIntervalSince(now)
@@ -431,12 +439,48 @@ struct TimerListItemView: View {
         }
     }
 
+    /// 定点与 Cron 提醒的下一次触发时间描述
+    private func nextNonIntervalFireDescription(for timer: TimerItem, now: Date) -> String {
+        switch timer.reminderType {
+        case .interval:
+            return ""
+        case .scheduled:
+            let enabled = timer.scheduledTimes.filter { $0.enabled }
+            guard !enabled.isEmpty else { return "无启用的提醒时间" }
+            let calendar = Calendar.current
+            let next = enabled.compactMap { time -> (time: ScheduledTime, date: Date)? in
+                let components = DateComponents(hour: time.hour, minute: time.minute, second: 0)
+                guard let date = calendar.nextDate(
+                    after: now,
+                    matching: components,
+                    matchingPolicy: .nextTime,
+                    repeatedTimePolicy: .first,
+                    direction: .forward
+                ) else {
+                    return nil
+                }
+                return (time, date)
+            }
+            .min { $0.date < $1.date }
+            return next?.time.formattedTime() ?? "无启用的提醒时间"
+        case .cron:
+            switch CronScheduleLookup.outcome(for: timer.cronExpression, now: now) {
+            case .next(let date):
+                return date.formatted(date: .abbreviated, time: .shortened)
+            case .invalid:
+                return "表达式无效"
+            case .unsatisfiable:
+                return "表达式永不匹配"
+            }
+        }
+    }
+
     /// 格式化提醒计划显示文本
     private func formattedSchedule(for timer: TimerItem) -> String {
-        if timer.reminderType == .interval {
+        switch timer.reminderType {
+        case .interval:
             return "[循环] " + timer.formattedInterval()
-        } else {
-            // 定点提醒
+        case .scheduled:
             let enabledTimes = timer.scheduledTimes.filter { $0.enabled }
             if enabledTimes.isEmpty {
                 return "[定点] 无启用的提醒时间"
@@ -447,6 +491,8 @@ struct TimerListItemView: View {
                 let firstTime = enabledTimes[0]
                 return String(format: "[定点] 每天 %02d:%02d 等%d个时间点", firstTime.hour, firstTime.minute, enabledTimes.count)
             }
+        case .cron:
+            return "[Cron] \(timer.cronExpression)"
         }
     }
 }

@@ -460,6 +460,8 @@ private struct TimerManagerListItemView: View {
             return "间隔｜\(scheduleRuleSummary)"
         case .scheduled:
             return "定点｜\(scheduleRuleSummary)"
+        case .cron:
+            return "Cron｜\(scheduleRuleSummary)"
         }
     }
 
@@ -508,6 +510,8 @@ private struct TimerManagerListItemView: View {
             guard !enabled.isEmpty else { return "无启用时间" }
             let values = enabled.prefix(3).map { $0.formattedTime() }.joined(separator: " / ")
             return enabled.count > 3 ? "\(values) 等 \(enabled.count) 个" : values
+        case .cron:
+            return timer.cronExpression
         }
     }
 
@@ -619,6 +623,15 @@ private struct TimerProgressFooterView: View {
         case .scheduled:
             guard let next = nextScheduledTime else { return "无启用的提醒时间" }
             return "下次提醒：\(next.formattedTime())"
+        case .cron:
+            switch CronScheduleLookup.outcome(for: timer.cronExpression, now: now) {
+            case .next(let next):
+                return "下次提醒：\(next.formatted(date: .abbreviated, time: .shortened))"
+            case .invalid:
+                return "Cron 表达式无效"
+            case .unsatisfiable:
+                return "Cron 表达式永不匹配"
+            }
         }
     }
 
@@ -663,6 +676,8 @@ private struct TimerDetailView: View {
                     DetailLine(label: "停留", value: timer.stayDurationMode == .fixed ? "\(Int(timer.stayDurationSeconds)) 秒" : "直到下次通知")
                     if timer.reminderType == .scheduled {
                         scheduledTimesDetail
+                    } else if timer.reminderType == .cron {
+                        DetailLine(label: "Cron", value: timer.cronExpression)
                     }
                 }
 
@@ -1056,7 +1071,8 @@ private struct TimerEditorSheet: View {
                         intervalSummary: intervalSummary,
                         intervalValue: $intervalValue,
                         intervalUnit: $intervalUnit,
-                        scheduledTimes: $timer.scheduledTimes
+                        scheduledTimes: $timer.scheduledTimes,
+                        cronExpression: $timer.cronExpression
                     )
                 }
 
@@ -1100,7 +1116,22 @@ private struct TimerEditorSheet: View {
     }
 
     private var canSave: Bool {
-        timer.isContentValid() && validationMessage == nil
+        timer.isContentValid() && isScheduleConfigurationValid
+    }
+
+    private var isScheduleConfigurationValid: Bool {
+        switch timer.reminderType {
+        case .interval:
+            guard let value = Double(intervalValue), value.rounded(.down) == value else { return false }
+            return intervalUnit == .seconds ? value >= 5 : value >= 1
+        case .scheduled:
+            let enabled = timer.scheduledTimes.filter(\.enabled)
+            let keys = enabled.map { $0.hour * 60 + $0.minute }
+            return !enabled.isEmpty && Set(keys).count == keys.count
+        case .cron:
+            guard let expression = try? CronExpression(timer.cronExpression) else { return false }
+            return expression.nextDate(after: Date()) != nil
+        }
     }
 
     private var intervalSummary: String {
@@ -1119,11 +1150,14 @@ private struct TimerEditorSheet: View {
 
     private func save() {
         guard validate() else { return }
-        if timer.reminderType == .interval {
+        switch timer.reminderType {
+        case .interval:
             let value = Double(intervalValue) ?? 0
             timer.intervalSeconds = max(intervalUnit == .seconds ? 5 : 60, value * intervalUnit.multiplier)
-        } else {
+        case .scheduled:
             timer.scheduledTimes = uniqueSortedTimes(timer.scheduledTimes)
+        case .cron:
+            timer.cronExpression = timer.cronExpression.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         onSave(timer, originalID)
         dismiss()
@@ -1132,7 +1166,8 @@ private struct TimerEditorSheet: View {
     private func validate() -> Bool {
         validationMessage = nil
 
-        if timer.reminderType == .interval {
+        switch timer.reminderType {
+        case .interval:
             guard let value = Double(intervalValue), value.rounded(.down) == value, value > 0 else {
                 validationMessage = "间隔必须是正整数"
                 return false
@@ -1145,7 +1180,7 @@ private struct TimerEditorSheet: View {
                 validationMessage = "单位为分钟时，间隔至少为 1 分钟"
                 return false
             }
-        } else {
+        case .scheduled:
             let enabled = timer.scheduledTimes.filter(\.enabled)
             guard !enabled.isEmpty else {
                 validationMessage = "请至少保留一个启用的定点时间"
@@ -1154,6 +1189,17 @@ private struct TimerEditorSheet: View {
             let keys = enabled.map { $0.hour * 60 + $0.minute }
             if Set(keys).count != keys.count {
                 validationMessage = "定点时间不能重复"
+                return false
+            }
+        case .cron:
+            do {
+                let expression = try CronExpression(timer.cronExpression)
+                guard expression.nextDate(after: Date()) != nil else {
+                    validationMessage = "该 Cron 表达式永远不会匹配任何时间，请检查日期与月份的组合"
+                    return false
+                }
+            } catch {
+                validationMessage = error.localizedDescription
                 return false
             }
         }
@@ -1213,19 +1259,24 @@ private struct ReminderScheduleEditor: View {
     @Binding var intervalValue: String
     @Binding var intervalUnit: TimerTimeUnit
     @Binding var scheduledTimes: [ScheduledTime]
+    @Binding var cronExpression: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
             ReminderTypeSelector(
                 selection: $selection,
                 timer: timer,
-                intervalSummary: intervalSummary
+                intervalSummary: intervalSummary,
+                cronExpression: cronExpression
             )
 
-            if selection == .interval {
+            switch selection {
+            case .interval:
                 IntervalConfigEditor(value: $intervalValue, unit: $intervalUnit)
-            } else {
+            case .scheduled:
                 ScheduledTimesEditor(times: $scheduledTimes)
+            case .cron:
+                CronConfigEditor(expression: $cronExpression)
             }
         }
     }
@@ -1235,6 +1286,7 @@ private struct ReminderTypeSelector: View {
     @Binding var selection: ReminderType
     let timer: TimerItem
     let intervalSummary: String
+    let cronExpression: String
 
     var body: some View {
         HStack(spacing: 0) {
@@ -1255,6 +1307,15 @@ private struct ReminderTypeSelector: View {
             ) {
                 selection = .scheduled
             }
+
+            ReminderTypeCard(
+                type: .cron,
+                title: "Cron",
+                subtitle: cronExpression.isEmpty ? "分 时 日 月 周" : cronExpression,
+                isSelected: selection == .cron
+            ) {
+                selection = .cron
+            }
         }
         .clipShape(RoundedRectangle(cornerRadius: TimerEditorMetrics.controlCornerRadius))
         .overlay(
@@ -1266,6 +1327,277 @@ private struct ReminderTypeSelector: View {
     private var scheduledSubtitle: String {
         let count = timer.scheduledTimes.filter(\.enabled).count
         return count == 0 ? "每天指定时间触发" : "每天 \(count) 个时间点"
+    }
+}
+
+private struct CronConfigEditor: View {
+    @Binding var expression: String
+    @State private var rule: CronScheduleRule
+    @State private var isAdvancedExpanded = false
+    /// 高级输入框的本地草稿：编辑中不回推 rule，避免控件在输入过程中被替换
+    @State private var advancedDraft: String
+
+    init(expression: Binding<String>) {
+        self._expression = expression
+        self._rule = State(initialValue: CronScheduleRule(expression: expression.wrappedValue))
+        self._advancedDraft = State(initialValue: expression.wrappedValue)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignTokens.Spacing.sm) {
+            HStack(spacing: DesignTokens.Spacing.sm) {
+                Text("规则")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Picker("规则", selection: kindBinding) {
+                    ForEach(CronScheduleKind.allCases) { kind in
+                        Text(kind.rawValue).tag(kind)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 120)
+            }
+
+            ruleControls
+
+            VStack(alignment: .leading, spacing: 5) {
+                Label(summaryText, systemImage: "calendar.badge.clock")
+                    .font(.caption)
+                    .fontWeight(.medium)
+
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                } else if nextFireDates.isEmpty {
+                    Text("该表达式永远不会匹配任何时间，例如 2 月 30 日")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ForEach(Array(nextFireDates.enumerated()), id: \.offset) { index, date in
+                        Text("\(index + 1). \(date.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                }
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: TimerEditorMetrics.smallCornerRadius)
+                    .fill(Color.accentColor.opacity(0.055))
+            )
+
+            if rule.kind != .custom {
+                DisclosureGroup("高级设置", isExpanded: $isAdvancedExpanded) {
+                    advancedExpressionField
+                        .padding(.top, 5)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var ruleControls: some View {
+        switch rule.kind {
+        case .hourly:
+            HStack(spacing: 8) {
+                Text("每小时的第")
+                TextField("分钟", value: minuteBinding, format: .number.grouping(.never))
+                    .textFieldStyle(.roundedBorder)
+                    .multilineTextAlignment(.center)
+                    .monospacedDigit()
+                    .frame(width: 44)
+                Text("分钟")
+                Stepper("分钟", value: minuteBinding, in: 0...59)
+                    .labelsHidden()
+            }
+            .font(.caption)
+
+        case .daily:
+            HStack(spacing: 8) {
+                Text("每天")
+                timePickers
+                Text("提醒")
+            }
+            .font(.caption)
+
+        case .weekdays:
+            HStack(spacing: 8) {
+                Text("周一至周五")
+                timePickers
+                Text("提醒")
+            }
+            .font(.caption)
+
+        case .weekly:
+            VStack(alignment: .leading, spacing: 7) {
+                HStack(spacing: 5) {
+                    ForEach(CronScheduleRule.orderedWeekdays, id: \.value) { weekday in
+                        weekdayButton(weekday)
+                    }
+                }
+                HStack(spacing: 8) {
+                    Text("在")
+                    timePickers
+                    Text("提醒")
+                }
+            }
+            .font(.caption)
+
+        case .monthly:
+            HStack(spacing: 8) {
+                Text("每月")
+                Picker("日期", selection: monthDayBinding) {
+                    ForEach(1...31, id: \.self) { day in
+                        Text("\(day) 日").tag(day)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(width: 76)
+                timePickers
+                Text("提醒")
+            }
+            .font(.caption)
+
+        case .custom:
+            advancedExpressionField
+            Text("格式：分 时 日 月 周；支持 *、逗号、范围和 / 步长，星期 0 或 7 表示周日")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var timePickers: some View {
+        HStack(spacing: 3) {
+            Picker("小时", selection: hourBinding) {
+                ForEach(0..<24, id: \.self) { hour in
+                    Text(String(format: "%02d", hour)).tag(hour)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(width: 62)
+
+            Text(":")
+                .fontWeight(.semibold)
+
+            Picker("分钟", selection: minuteBinding) {
+                ForEach(0..<60, id: \.self) { minute in
+                    Text(String(format: "%02d", minute)).tag(minute)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(width: 62)
+        }
+        .monospacedDigit()
+    }
+
+    private var advancedExpressionField: some View {
+        TextField("例如：0 9 * * 1-5", text: $advancedDraft)
+            .textFieldStyle(.roundedBorder)
+            .font(.system(.body, design: .monospaced))
+            .onChange(of: advancedDraft) { _, newValue in
+                // 编辑中只同步表达式本身，规则类型留到提交时再推断，避免输入框中途被替换
+                expression = newValue
+            }
+            .onSubmit { reinterpretAdvancedDraft() }
+            .onDisappear { reinterpretAdvancedDraft() }
+    }
+
+    private func reinterpretAdvancedDraft() {
+        let trimmed = advancedDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        expression = trimmed
+        advancedDraft = trimmed
+        rule.reinterpret(expression: trimmed, preservingCustomDraft: trimmed)
+    }
+
+    private func weekdayButton(_ weekday: (value: Int, label: String)) -> some View {
+        let isSelected = rule.weekdays.contains(weekday.value)
+        return Button {
+            if isSelected {
+                guard rule.weekdays.count > 1 else { return }
+                rule.weekdays.remove(weekday.value)
+            } else {
+                rule.weekdays.insert(weekday.value)
+            }
+            syncExpression()
+        } label: {
+            Text("周\(weekday.label)")
+                .font(.caption2)
+                .frame(width: 28, height: 24)
+                .background(
+                    RoundedRectangle(cornerRadius: 6)
+                        .fill(isSelected ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.07))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6)
+                        .stroke(isSelected ? Color.accentColor.opacity(0.38) : Color.secondary.opacity(0.12), lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var kindBinding: Binding<CronScheduleKind> {
+        Binding(
+            get: { rule.kind },
+            set: { kind in
+                // 离开自定义模式时保存草稿，回到自定义模式时恢复它
+                if rule.kind == .custom {
+                    rule.customExpression = expression.trimmingCharacters(in: .whitespacesAndNewlines)
+                }
+                rule.kind = kind
+                syncExpression()
+                advancedDraft = expression
+            }
+        )
+    }
+
+    private var minuteBinding: Binding<Int> {
+        Binding(get: { rule.minute }, set: { rule.minute = min(59, max(0, $0)); syncExpression() })
+    }
+
+    private var hourBinding: Binding<Int> {
+        Binding(get: { rule.hour }, set: { rule.hour = min(23, max(0, $0)); syncExpression() })
+    }
+
+    private var monthDayBinding: Binding<Int> {
+        Binding(get: { rule.monthDay }, set: { rule.monthDay = min(31, max(1, $0)); syncExpression() })
+    }
+
+    /// 摘要按当前表达式派生：自定义模式下也能读出「每天 09:00」这类可读文本
+    private var summaryText: String {
+        guard rule.kind == .custom else { return rule.summary }
+        let derived = CronScheduleRule(expression: expression)
+        return derived.kind == .custom ? rule.summary : derived.summary
+    }
+
+    private var errorMessage: String? {
+        do {
+            _ = try CronExpression(expression)
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
+    }
+
+    private var nextFireDates: [Date] {
+        CronScheduleLookup.upcomingDates(for: expression, count: 3)
+    }
+
+    private func syncExpression() {
+        expression = rule.expression
+        advancedDraft = expression
     }
 }
 

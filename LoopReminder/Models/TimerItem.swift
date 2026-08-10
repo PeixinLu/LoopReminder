@@ -6,6 +6,7 @@ import Foundation
 enum ReminderType: String, Codable, CaseIterable {
     case interval = "间隔提醒"
     case scheduled = "定点提醒"
+    case cron = "Cron 提醒"
 }
 
 enum ReminderEventStatus: String, Codable, CaseIterable {
@@ -67,6 +68,25 @@ struct TimerItem: Identifiable, Codable {
         case fixed = "固定时长"
     }
 
+    // MARK: - Defaults from DefaultSettings.json
+
+    static var defaultReminderType: ReminderType {
+        ReminderType(rawValue: DefaultSettingsConfig.shared.reminderType.type) ?? .interval
+    }
+
+    static var defaultScheduledTimes: [ScheduledTime] {
+        let entries = DefaultSettingsConfig.shared.reminderType.scheduledTimes
+        guard !entries.isEmpty else { return [ScheduledTime(hour: 9, minute: 0)] }
+        return entries.map {
+            // JSON 中的 ID 只用于标识配置项；每个计时器必须拥有独立的时间点 ID。
+            ScheduledTime(hour: $0.hour, minute: $0.minute, enabled: $0.enabled)
+        }
+    }
+
+    static var defaultCronExpression: String {
+        DefaultSettingsConfig.shared.reminderType.cronExpression
+    }
+
     var id: UUID
     var emoji: String // 图标
     var title: String // 通知标题（也作为计时器名称）
@@ -79,10 +99,13 @@ struct TimerItem: Identifiable, Codable {
     var isRunning: Bool = false // 是否正在运行（不持久化）
 
     // 提醒类型
-    var reminderType: ReminderType = .interval
+    var reminderType: ReminderType = TimerItem.defaultReminderType
 
     // 定点提醒时间列表
-    var scheduledTimes: [ScheduledTime] = [ScheduledTime(hour: 9, minute: 0)]
+    var scheduledTimes: [ScheduledTime] = TimerItem.defaultScheduledTimes
+
+    // 标准五字段 Cron 表达式：分 时 日 月 周
+    var cronExpression: String = TimerItem.defaultCronExpression
 
     // 提示音（nil 表示静音）
     var soundName: String? = "Glass"
@@ -195,8 +218,9 @@ struct TimerItem: Identifiable, Codable {
         restSeconds: Double = 300,
         customColor: TimerColor? = nil,
         lastFireEpoch: Double = 0,
-        reminderType: ReminderType = .interval,
-        scheduledTimes: [ScheduledTime] = [ScheduledTime(hour: 9, minute: 0)],
+        reminderType: ReminderType? = nil,
+        scheduledTimes: [ScheduledTime]? = nil,
+        cronExpression: String? = nil,
         soundName: String? = "Glass",
         stayDurationMode: StayDurationMode = .untilNextNotification,
         stayDurationSeconds: Double = 5.0,
@@ -211,8 +235,9 @@ struct TimerItem: Identifiable, Codable {
         self.restSeconds = restSeconds
         self.customColor = customColor
         self.lastFireEpoch = lastFireEpoch
-        self.reminderType = reminderType
-        self.scheduledTimes = scheduledTimes
+        self.reminderType = reminderType ?? Self.defaultReminderType
+        self.scheduledTimes = scheduledTimes ?? Self.defaultScheduledTimes
+        self.cronExpression = cronExpression ?? Self.defaultCronExpression
         self.soundName = soundName
         self.stayDurationMode = stayDurationMode
         self.stayDurationSeconds = stayDurationSeconds
@@ -231,8 +256,9 @@ struct TimerItem: Identifiable, Codable {
         restSeconds = try container.decode(Double.self, forKey: .restSeconds)
         customColor = try container.decodeIfPresent(TimerColor.self, forKey: .customColor)
         lastFireEpoch = try container.decode(Double.self, forKey: .lastFireEpoch)
-        reminderType = try container.decodeIfPresent(ReminderType.self, forKey: .reminderType) ?? .interval
-        scheduledTimes = try container.decodeIfPresent([ScheduledTime].self, forKey: .scheduledTimes) ?? [ScheduledTime(hour: 9, minute: 0)]
+        reminderType = try container.decodeIfPresent(ReminderType.self, forKey: .reminderType) ?? Self.defaultReminderType
+        scheduledTimes = try container.decodeIfPresent([ScheduledTime].self, forKey: .scheduledTimes) ?? Self.defaultScheduledTimes
+        cronExpression = try container.decodeIfPresent(String.self, forKey: .cronExpression) ?? Self.defaultCronExpression
         soundName = container.contains(.soundName) ? try container.decodeIfPresent(String.self, forKey: .soundName) : "Glass"
         stayDurationMode = try container.decodeIfPresent(StayDurationMode.self, forKey: .stayDurationMode) ?? .untilNextNotification
         stayDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .stayDurationSeconds) ?? 5.0
@@ -308,7 +334,7 @@ struct TimerItem: Identifiable, Codable {
     enum CodingKeys: String, CodingKey {
         case id, emoji, title, body, intervalSeconds
         case isRestEnabled, restSeconds, customColor, lastFireEpoch
-        case reminderType, scheduledTimes, soundName
+        case reminderType, scheduledTimes, cronExpression, soundName
         case stayDurationMode, stayDurationSeconds
     }
 }

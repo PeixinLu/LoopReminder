@@ -286,9 +286,10 @@ struct TimerRowView: View {
 
     /// 格式化提醒计划显示文本
     private var scheduleText: String {
-        if timer.reminderType == .interval {
+        switch timer.reminderType {
+        case .interval:
             return "循环 · " + timer.formattedInterval()
-        } else {
+        case .scheduled:
             let enabledTimes = timer.scheduledTimes.filter { $0.enabled }
             if enabledTimes.isEmpty {
                 return "定点 · 无启用的时间"
@@ -299,6 +300,8 @@ struct TimerRowView: View {
                 let firstTime = enabledTimes[0]
                 return String(format: "定点 · %02d:%02d 等%d个", firstTime.hour, firstTime.minute, enabledTimes.count)
             }
+        case .cron:
+            return "Cron · \(timer.cronExpression)"
         }
     }
 
